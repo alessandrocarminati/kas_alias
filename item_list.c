@@ -3,10 +3,28 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdbool.h>
+#include <assert.h>
 
 #include "item_list.h"
 
-struct item *addItem(struct item **list, const char *name, char stype, uint64_t addr) {
+struct item *list_index[96]={0};
+
+void build_index(struct item *list){
+	struct item *current = list;
+	char current_first_letter=' ';
+
+//	printf("[head] -> 0x%08lx\n", list);
+	while (current != NULL) {
+		if (current->symb_name[0]!=current_first_letter) {
+			current_first_letter=current->symb_name[0];
+			list_index[current_first_letter-32]=current;
+			}
+		current=current->next;
+		}
+//	for (int i=0; i<96; i++) printf("[%d] -> 0x%08lx\n", i, list_index[i]);
+}
+
+struct item *add_item(struct item **list, const char *name, char stype, uint64_t addr) {
 	struct item* new_item = (struct item*)malloc(sizeof(struct item));
 	strncpy(new_item->symb_name, name, MAX_NAME_SIZE);
 	new_item->addr = addr;
@@ -25,7 +43,7 @@ struct item *addItem(struct item **list, const char *name, char stype, uint64_t 
 	return new_item;
 }
 
-void sortList(struct item **list, int sort_by) {
+void sort_list(struct item **list, int sort_by) {
 	struct item *current = *list;
 	struct item *sorted = NULL;
 	struct item *next_item;
@@ -57,7 +75,7 @@ void sortList(struct item **list, int sort_by) {
 	*list = sorted;
 }
 
-struct item *merge(struct item *left, struct item *right, int sortCriteria) {
+struct item *merge(struct item *left, struct item *right, int sort_by) {
 	if (left == NULL) {
 		return right;
 		} else if (right == NULL) {
@@ -67,7 +85,7 @@ struct item *merge(struct item *left, struct item *right, int sortCriteria) {
 	struct item *result = NULL;
 	struct item *current = NULL;
 
-	if (sortCriteria == BY_NAME) {
+	if (sort_by == BY_NAME) {
 		if (strcmp(left->symb_name, right->symb_name) <= 0) {
 			result = left;
 			left = left->next;
@@ -76,7 +94,7 @@ struct item *merge(struct item *left, struct item *right, int sortCriteria) {
 				right = right->next;
 				}
 		} else
-			if (sortCriteria == BY_ADDRESS) {
+			if (sort_by == BY_ADDRESS) {
 				if (left->addr <= right->addr) {
 					result = left;
 					left = left->next;
@@ -89,7 +107,7 @@ struct item *merge(struct item *left, struct item *right, int sortCriteria) {
 	current = result;
 
 	while (left && right) {
-		if (sortCriteria == BY_NAME) {
+		if (sort_by == BY_NAME) {
 			if (strcmp(left->symb_name, right->symb_name) <= 0) {
 				current->next = left;
 				left = left->next;
@@ -97,7 +115,7 @@ struct item *merge(struct item *left, struct item *right, int sortCriteria) {
 					current->next = right;
 					right = right->next;
 					}
-			} else if (sortCriteria == BY_ADDRESS) {
+			} else if (sort_by == BY_ADDRESS) {
 					if (left->addr <= right->addr) {
 						current->next = left;
 						left = left->next;
@@ -119,7 +137,7 @@ struct item *merge(struct item *left, struct item *right, int sortCriteria) {
 	return result;
 }
 
-struct item *mergeSort(struct item *head, int sortCriteria) {
+struct item *merge_sort(struct item *head, int sort_by) {
 	if (head == NULL || head->next == NULL) {
 		return head;
 		}
@@ -136,24 +154,24 @@ struct item *mergeSort(struct item *head, int sortCriteria) {
 	struct item *right = slow->next;
 	slow->next = NULL;
 
-	left = mergeSort(left, sortCriteria);
-	right = mergeSort(right, sortCriteria);
+	left = merge_sort(left, sort_by);
+	right = merge_sort(right, sort_by);
 
-	return merge(left, right, sortCriteria);
+	return merge(left, right, sort_by);
 }
 
-void sortList_m(struct item **head, int sortCriteria) {
+void sort_list_m(struct item **head, int sort_by) {
 	if (*head == NULL || (*head)->next == NULL) {
 		return;
 		}
 
-	*head = mergeSort(*head, sortCriteria);
+	*head = merge_sort(*head, sort_by);
 }
 
 int insert_after(struct item *list, const uint64_t search_addr, const char *name, uint64_t addr, char stype) {
-	struct item *current = list;
 	struct item *next_item, *new_item;
 	int ret=0;
+	struct item *current = (list_index[name[0]-32]!=NULL)?list_index[name[0]-32]:list;
 
 	while (current != NULL) {
 		if (current->addr == search_addr) {
@@ -168,5 +186,6 @@ int insert_after(struct item *list, const uint64_t search_addr, const char *name
 			}
 		current = current->next;
 		}
+	assert(ret != 0);
 	return ret;
 }

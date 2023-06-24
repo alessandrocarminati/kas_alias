@@ -41,15 +41,16 @@ int main(int argc, char *argv[]) {
 	if (verbose_mode) printf("Scanning nm data(%s)\n", argv[1]);
 	fp = fopen (argv[1], "r");
 	while (fscanf(fp, "%lx %c %99s\n", &address, &t, sym_name) == 3) {
-		last=addItem(&last, sym_name, t, address);
+		last=add_item(&last, sym_name, t, address);
 		if (head==NULL) head=last;
 		}
 	fclose(fp);
 	if (verbose_mode) printf("Sorting nm data\n");
-	sortList_m(&head, BY_NAME);
+	sort_list_m(&head, BY_NAME);
 	if (verbose_mode) printf("Scanning nm data for duplicates\n");
 	duplicate = findDuplicates(head);
 	if (verbose_mode) printf("Applying suffixes\n");
+	build_index(head);
 	duplicate_iterator=duplicate;
 	while (duplicate_iterator != NULL) {
 			find_suffix(duplicate_iterator->original_item->symb_name, addr2filename(lod, 0xffffffff814c8f10), new_name);
