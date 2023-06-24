@@ -46,7 +46,7 @@ int main(int argc, char *argv[]) {
 		}
 	fclose(fp);
 	if (verbose_mode) printf("Sorting nm data\n");
-	sortList(&head, BY_NAME);
+	sortList_m(&head, BY_NAME);
 	if (verbose_mode) printf("Scanning nm data for duplicates\n");
 	duplicate = findDuplicates(head);
 	if (verbose_mode) printf("Applying suffixes\n");

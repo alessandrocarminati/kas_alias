@@ -57,6 +57,99 @@ void sortList(struct item **list, int sort_by) {
 	*list = sorted;
 }
 
+struct item *merge(struct item *left, struct item *right, int sortCriteria) {
+	if (left == NULL) {
+		return right;
+		} else if (right == NULL) {
+			return left;
+			}
+
+	struct item *result = NULL;
+	struct item *current = NULL;
+
+	if (sortCriteria == BY_NAME) {
+		if (strcmp(left->symb_name, right->symb_name) <= 0) {
+			result = left;
+			left = left->next;
+			} else {
+				result = right;
+				right = right->next;
+				}
+		} else
+			if (sortCriteria == BY_ADDRESS) {
+				if (left->addr <= right->addr) {
+					result = left;
+					left = left->next;
+					} else {
+						result = right;
+						right = right->next;
+						}
+				}
+
+	current = result;
+
+	while (left && right) {
+		if (sortCriteria == BY_NAME) {
+			if (strcmp(left->symb_name, right->symb_name) <= 0) {
+				current->next = left;
+				left = left->next;
+				} else {
+					current->next = right;
+					right = right->next;
+					}
+			} else if (sortCriteria == BY_ADDRESS) {
+					if (left->addr <= right->addr) {
+						current->next = left;
+						left = left->next;
+						} else {
+							current->next = right;
+							right = right->next;
+							}
+					}
+
+		current = current->next;
+		}
+
+	if (left) {
+		current->next = left;
+		} else if (right) {
+				current->next = right;
+				}
+
+	return result;
+}
+
+struct item *mergeSort(struct item *head, int sortCriteria) {
+	if (head == NULL || head->next == NULL) {
+		return head;
+		}
+
+	struct item *slow = head;
+	struct item *fast = head->next;
+
+	while (fast && fast->next) {
+		slow = slow->next;
+		fast = fast->next->next;
+		}
+
+	struct item *left = head;
+	struct item *right = slow->next;
+	slow->next = NULL;
+
+	left = mergeSort(left, sortCriteria);
+	right = mergeSort(right, sortCriteria);
+
+	return merge(left, right, sortCriteria);
+}
+
+void sortList_m(struct item **head, int sortCriteria) {
+	if (*head == NULL || (*head)->next == NULL) {
+		return;
+		}
+
+	*head = mergeSort(*head, sortCriteria);
+}
+
 int insert_after(struct item *list, const uint64_t search_addr, const char *name, uint64_t addr, char stype) {
 	struct item *current = list;
 	struct item *next_item, *new_item;
