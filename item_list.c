@@ -6,7 +6,7 @@
 
 #include "item_list.h"
 
-void addItem(struct item **list, const char *name, char stype, uint64_t addr) {
+struct item *addItem(struct item **list, const char *name, char stype, uint64_t addr) {
 	struct item* new_item = (struct item*)malloc(sizeof(struct item));
 	strncpy(new_item->symb_name, name, MAX_NAME_SIZE);
 	new_item->addr = addr;
@@ -22,6 +22,7 @@ void addItem(struct item **list, const char *name, char stype, uint64_t addr) {
 				}
 			current->next = new_item;
 			}
+	return new_item;
 }
 
 void sortList(struct item **list, int sort_by) {

@@ -17,6 +17,7 @@ void find_suffix(const char *name, const char *suffix, char *output_suffix){
 
 int main(int argc, char *argv[]) {
 	struct item *head = {NULL};
+	struct item *last = {NULL};
 	struct item *o_head = {NULL};
 	struct item  *current;
 	struct duplicate_item *duplicate, *duplicate_iterator;
@@ -40,7 +41,8 @@ int main(int argc, char *argv[]) {
 	if (verbose_mode) printf("Scanning nm data(%s)\n", argv[1]);
 	fp = fopen (argv[1], "r");
 	while (fscanf(fp, "%lx %c %99s\n", &address, &t, sym_name) == 3) {
-		addItem(&head, sym_name, t, address);
+		last=addItem(&last, sym_name, t, address);
+		if (head==NULL) head=last;
 		}
 	fclose(fp);
 	if (verbose_mode) printf("Sorting nm data\n");

@@ -13,7 +13,7 @@ struct item {
 	struct item 	*next;
 };
 
-void addItem(struct item **list, const char *name, char stype, uint64_t addr);
+struct item *addItem(struct item **list, const char *name, char stype, uint64_t addr);
 void sortList(struct item **list, int sort_by);
 int insert_after(struct item *list, const uint64_t search_addr, const char *name, uint64_t addr, char stype);
 #endif
