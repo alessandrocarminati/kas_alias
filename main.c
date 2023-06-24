@@ -6,14 +6,11 @@
 
 #include "item_list.h"
 #include "duplicates_list.h"
-#include "parse_linker_log.h"
 
-void find_suffix(const char *name, const char *suffix, char *output_suffix){
-
-	sprintf(output_suffix, "%s@%s", name, suffix);
+int suffix_serial=0;
+void create_suffix(const char *name, char *output_suffix){
+        sprintf(output_suffix, "%s@%d", name, suffix_serial++);
 }
-
-
 
 int main(int argc, char *argv[]) {
 	struct item *head = {NULL};
@@ -27,16 +24,15 @@ int main(int argc, char *argv[]) {
 	char t, sym_name[MAX_NAME_SIZE], new_name[MAX_NAME_SIZE];
 	FILE *fp;
 
-	if (argc < 3 || argc > 4) {
-		printf("Usage: %s <nmfile> <vmlinux.map> [-verbose]\n", argv[0]);
+	if (argc < 2 || argc > 3) {
+		printf("Usage: %s <nmfile> [-verbose]\n", argv[0]);
 		return 1;
 		}
-	if (argc == 4 && strcmp(argv[3], "-verbose") == 0) {
+	if (argc == 3 && strcmp(argv[2], "-verbose") == 0) {
 		verbose_mode = 1;
 		}
 
 	if (verbose_mode) printf("fetching loader producted map (%s)\n", argv[2]);
-	lod=parseLinkerObjects(argv[2]);
 
 	if (verbose_mode) printf("Scanning nm data(%s)\n", argv[1]);
 	fp = fopen (argv[1], "r");
@@ -53,10 +49,11 @@ int main(int argc, char *argv[]) {
 	build_index(head);
 	duplicate_iterator=duplicate;
 	while (duplicate_iterator != NULL) {
-			find_suffix(duplicate_iterator->original_item->symb_name, addr2filename(lod, 0xffffffff814c8f10), new_name);
+			create_suffix(duplicate_iterator->original_item->symb_name, new_name);
 			if (!insert_after(head, duplicate_iterator->original_item->addr, new_name, duplicate_iterator->original_item->addr, duplicate_iterator->original_item->stype)) return 1;
 			duplicate_iterator=duplicate_iterator->next;
 			}
+	sort_list_m(&head, BY_ADDRESS);
         current = head;
         while (current != NULL) {
                 printf("%08lx %c %s\n", current->addr, current->stype, current->symb_name);
