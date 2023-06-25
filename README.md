@@ -31,3 +31,27 @@ unique suffixes during the kernel build process. By doing so, it enables
 performance engineers to effectively trace or probe symbols that would 
 otherwise be indistinguishable based on name alone.
 
+
+# Example
+
+The following is an example of the modification introduced by this patch.
+
+Without the patch, you would have:
+```
+ffffffff815501a0 t __pfx_device_show
+ffffffff815d71b0 t __pfx_device_show
+```
+It is not possible to probe `__pfx_device_show` at `0xffffffff815d71b0` since 
+`kallsyms_lookup_name` would only return this address.
+
+This patch modifies the table as follows:
+
+```
+ffffffff815501a0 t __pfx_device_show
+ffffffff815501a0 t __pfx_device_show@7790
+ffffffff815d71b0 t __pfx_device_show
+ffffffff815d71b0 t __pfx_device_show@7791
+```
+In this case, it is possible to probe `__pfx_device_show` at 
+`0xffffffff815d71b0` by using `__pfx_device_show@7791`.
+
