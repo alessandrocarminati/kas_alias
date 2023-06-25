@@ -1,0 +1,472 @@
+From 2d80f8484481d4461c36b17b6c25ae8bd8432f33 Mon Sep 17 00:00:00 2001
+From: Alessandro Carminati <alessandro.carminati@gmail.com>
+Date: Sun, 25 Jun 2023 09:15:38 +0000
+Subject: [PATCH] Add alias to duplicate symbols for kallsyms
+Content-type: text/plain
+
+In the Linux kernel, it is not uncommon for drivers or modules related to
+similar peripherals to have symbols with the exact same name.
+While this is not a problem for the kernel's binary itself, it becomes an
+issue when attempting to trace or probe specific functions using
+infrastructure like ftrace or kprobe.
+
+The tracing subsystem relies on the `nm -n vmlinux` output, which provides
+symbol information from the kernel's ELF binary. However, when multiple
+symbols share the same name, the standard nm output does not differentiate
+between them. This can lead to confusion and difficulty when trying to
+probe the intended symbol.
+
+**kas_alias** addresses this challenge by extending the symbol names with
+unique suffixes during the kernel build process. By doing so, it enables
+performance engineers to effectively trace or probe symbols that would
+otherwise be indistinguishable based on name alone.
+
+Signed-off-by: Alessandro Carminati <alessandro.carminati@gmail.com>
+---
+ scripts/Makefile                    |   1 +
+ scripts/kas_alias/Makefile          |   5 +
+ scripts/kas_alias/duplicates_list.c |  48 +++++++
+ scripts/kas_alias/duplicates_list.h |  14 ++
+ scripts/kas_alias/item_list.c       | 205 ++++++++++++++++++++++++++++
+ scripts/kas_alias/item_list.h       |  25 ++++
+ scripts/kas_alias/kas_alias.c       |  71 ++++++++++
+ scripts/link-vmlinux.sh             |   1 +
+ 8 files changed, 370 insertions(+)
+ create mode 100644 scripts/kas_alias/Makefile
+ create mode 100644 scripts/kas_alias/duplicates_list.c
+ create mode 100644 scripts/kas_alias/duplicates_list.h
+ create mode 100644 scripts/kas_alias/item_list.c
+ create mode 100644 scripts/kas_alias/item_list.h
+ create mode 100644 scripts/kas_alias/kas_alias.c
+
+diff --git a/scripts/Makefile b/scripts/Makefile
+index 32b6ba722728..d3ff57859d46 100644
+--- a/scripts/Makefile
++++ b/scripts/Makefile
+@@ -46,6 +46,7 @@ targets += module.lds
+ subdir-$(CONFIG_GCC_PLUGINS) += gcc-plugins
+ subdir-$(CONFIG_MODVERSIONS) += genksyms
+ subdir-$(CONFIG_SECURITY_SELINUX) += selinux
++subdir-$(CONFIG_KALLSYMS) += kas_alias
+ 
+ # Let clean descend into subdirs
+ subdir-	+= basic dtc gdb kconfig mod
+diff --git a/scripts/kas_alias/Makefile b/scripts/kas_alias/Makefile
+new file mode 100644
+index 000000000000..f4dc322a6392
+--- /dev/null
++++ b/scripts/kas_alias/Makefile
+@@ -0,0 +1,5 @@
++# SPDX-License-Identifier: GPL-2.0
++hostprogs-always-$(CONFIG_KALLSYMS)    += kas_alias
++
++kas_alias-objs        := duplicates_list.o item_list.o kas_alias.o
++
+diff --git a/scripts/kas_alias/duplicates_list.c b/scripts/kas_alias/duplicates_list.c
+new file mode 100644
+index 000000000000..6d4145aabd25
+--- /dev/null
++++ b/scripts/kas_alias/duplicates_list.c
+@@ -0,0 +1,48 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++#include <stdint.h>
++#include <stdio.h>
++#include <string.h>
++#include <stdlib.h>
++
++#include "item_list.h"
++#include "duplicates_list.h"
++
++struct duplicate_item *find_duplicates(struct item *list)
++{
++	struct duplicate_item *duplicates = NULL;
++	struct duplicate_item *current_duplicate = NULL;
++	struct item *current_item = list;
++	struct item *prev_item = NULL;
++	struct duplicate_item *new_duplicate;
++
++	while (current_item) {
++		if (prev_item && strcmp(current_item->symb_name, prev_item->symb_name) == 0) {
++			if (!duplicates) {
++				duplicates = (struct duplicate_item *)
++					malloc(sizeof(struct duplicate_item));
++				duplicates->original_item = prev_item;
++				duplicates->next = NULL;
++				current_duplicate = duplicates;
++			} else {
++				new_duplicate = (struct duplicate_item *)
++					malloc(sizeof(struct duplicate_item));
++				new_duplicate->original_item = prev_item;
++				new_duplicate->next = NULL;
++				current_duplicate->next = new_duplicate;
++				current_duplicate = new_duplicate;
++			}
++
++			new_duplicate = (struct duplicate_item *)
++				malloc(sizeof(struct duplicate_item));
++			new_duplicate->original_item = current_item;
++			new_duplicate->next = NULL;
++			current_duplicate->next = new_duplicate;
++			current_duplicate = new_duplicate;
++		}
++
++		prev_item = current_item;
++		current_item = current_item->next;
++	}
++
++	return duplicates;
++}
+diff --git a/scripts/kas_alias/duplicates_list.h b/scripts/kas_alias/duplicates_list.h
+new file mode 100644
+index 000000000000..544a2671fed6
+--- /dev/null
++++ b/scripts/kas_alias/duplicates_list.h
+@@ -0,0 +1,14 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++#ifndef DUPLICATES_LIST_H
++#define DUPLICATES_LIST_H
++
++#include "item_list.h"
++
++struct duplicate_item {
++	struct item *original_item;
++	struct duplicate_item *next;
++};
++
++struct duplicate_item *find_duplicates(struct item *list);
++
++#endif
+diff --git a/scripts/kas_alias/item_list.c b/scripts/kas_alias/item_list.c
+new file mode 100644
+index 000000000000..dc39424dddfc
+--- /dev/null
++++ b/scripts/kas_alias/item_list.c
+@@ -0,0 +1,205 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++#include <stdio.h>
++#include <stdlib.h>
++#include <stdint.h>
++#include <string.h>
++#include <stdbool.h>
++#include <assert.h>
++
++#include "item_list.h"
++
++struct item *list_index[96] = {0};
++
++void build_index(struct item *list)
++{
++	struct item *current = list;
++	char current_first_letter = ' ';
++
++	while (current) {
++		if (current->symb_name[0] != current_first_letter) {
++			current_first_letter = current->symb_name[0];
++			list_index[current_first_letter - 32] = current;
++			}
++		current = current->next;
++		}
++}
++
++struct item *add_item(struct item **list, const char *name, char stype, uint64_t addr)
++{
++	struct item *new_item = (struct item *)malloc(sizeof(struct item));
++
++	strncpy(new_item->symb_name, name, MAX_NAME_SIZE);
++	new_item->addr = addr;
++	new_item->stype = stype;
++	new_item->next = NULL;
++	struct item *current;
++
++	if (!(*list)) {
++		*list = new_item;
++	} else {
++		current = *list;
++		while (current->next)
++			current = current->next;
++		current->next = new_item;
++	}
++	return new_item;
++}
++
++void sort_list(struct item **list, int sort_by)
++{
++	struct item *current = *list;
++	struct item *sorted = NULL;
++	struct item *next_item;
++	struct item *temp;
++
++	if (!(*list) || !((*list)->next))
++		return;
++
++	while (current) {
++		next_item = current->next;
++		if (!sorted ||
++		    (sort_by == BY_ADDRESS && current->addr < sorted->addr) ||
++		    (sort_by == BY_NAME && strcmp(current->symb_name, sorted->symb_name) < 0)) {
++			current->next = sorted;
++			sorted = current;
++		} else {
++			temp = sorted;
++			while (temp->next &&
++			       ((sort_by == BY_ADDRESS && current->addr >= temp->next->addr) ||
++			       (sort_by == BY_NAME &&
++			       strcmp(current->symb_name, temp->next->symb_name) >= 0))) {
++					temp = temp->next;
++				}
++			current->next = temp->next;
++			temp->next = current;
++		}
++		current = next_item;
++	}
++	*list = sorted;
++}
++
++struct item *merge(struct item *left, struct item *right, int sort_by)
++{
++	struct item *result = NULL;
++	struct item *current = NULL;
++
++	if (!left)
++		return right;
++	if (!right)
++		return left;
++
++	if (sort_by == BY_NAME) {
++		if (strcmp(left->symb_name, right->symb_name) <= 0) {
++			result = left;
++			left = left->next;
++		} else {
++			result = right;
++			right = right->next;
++		}
++	} else {
++		if (sort_by == BY_ADDRESS) {
++			if (left->addr <= right->addr) {
++				result = left;
++				left = left->next;
++			} else {
++				result = right;
++				right = right->next;
++			}
++		}
++	}
++
++	current = result;
++
++	while (left && right) {
++		if (sort_by == BY_NAME) {
++			if (strcmp(left->symb_name, right->symb_name) <= 0) {
++				current->next = left;
++				left = left->next;
++			} else {
++				current->next = right;
++				right = right->next;
++			}
++		} else {
++			if (sort_by == BY_ADDRESS) {
++				if (left->addr <= right->addr) {
++					current->next = left;
++					left = left->next;
++				} else {
++					current->next = right;
++					right = right->next;
++				}
++			}
++		}
++
++		current = current->next;
++	}
++
++	if (left) {
++		current->next = left;
++	} else {
++		if (right)
++			current->next = right;
++	}
++
++	return result;
++}
++
++struct item *merge_sort(struct item *head, int sort_by)
++{
++	struct item *slow;
++	struct item *fast;
++	struct item *left;
++	struct item *right;
++
++	if (!head || !head->next)
++		return head;
++
++	slow = head;
++	fast = head->next;
++
++	while (fast && fast->next) {
++		slow = slow->next;
++		fast = fast->next->next;
++	}
++
++	left = head;
++	right = slow->next;
++	slow->next = NULL;
++
++	left = merge_sort(left, sort_by);
++	right = merge_sort(right, sort_by);
++
++	return merge(left, right, sort_by);
++}
++
++void sort_list_m(struct item **head, int sort_by)
++{
++	if (!(*head) || !((*head)->next))
++		return;
++
++	*head = merge_sort(*head, sort_by);
++}
++
++int insert_after(struct item *list, const uint64_t search_addr,
++		 const char *name, uint64_t addr, char stype)
++{
++	struct item *next_item, *new_item;
++	int ret = 0;
++	struct item *current = (list_index[name[0] - 32]) ? list_index[name[0] - 32] : list;
++
++	while (current) {
++		if (current->addr == search_addr) {
++			new_item = (struct item *)malloc(sizeof(struct item));
++			strncpy(new_item->symb_name, name, MAX_NAME_SIZE);
++			new_item->addr = addr;
++			new_item->stype = stype;
++			new_item->next = current->next;
++			current->next = new_item;
++			ret = 1;
++			break;
++		}
++		current = current->next;
++	}
++	assert(ret != 0);
++	return ret;
++}
+diff --git a/scripts/kas_alias/item_list.h b/scripts/kas_alias/item_list.h
+new file mode 100644
+index 000000000000..203887d97d1d
+--- /dev/null
++++ b/scripts/kas_alias/item_list.h
+@@ -0,0 +1,25 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++#ifndef ITEM_LIST_H
++#define ITEM_LIST_H
++#include <stdint.h>
++
++#define MAX_NAME_SIZE 256
++#define BY_ADDRESS 1
++#define BY_NAME 2
++
++struct item {
++	char		symb_name[MAX_NAME_SIZE];
++	uint64_t	addr;
++	char		stype;
++	struct item	*next;
++};
++
++void build_index(struct item *list);
++struct item *add_item(struct item **list, const char *name, char stype, uint64_t addr);
++void sort_list(struct item **list, int sort_by);
++struct item *merge(struct item *left, struct item *right, int sort_by);
++struct item *merge_sort(struct item *head, int sort_by);
++void sort_list_m(struct item **head, int sort_by);
++int insert_after(struct item *list, const uint64_t search_addr,
++		 const char *name, uint64_t addr, char stype);
++#endif
+diff --git a/scripts/kas_alias/kas_alias.c b/scripts/kas_alias/kas_alias.c
+new file mode 100644
+index 000000000000..824af30fcf72
+--- /dev/null
++++ b/scripts/kas_alias/kas_alias.c
+@@ -0,0 +1,71 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++#include <stdio.h>
++#include <stdlib.h>
++#include <stdint.h>
++#include <string.h>
++#include <stdbool.h>
++
++#include "item_list.h"
++#include "duplicates_list.h"
++
++int suffix_serial;
++void create_suffix(const char *name, char *output_suffix)
++{
++	sprintf(output_suffix, "%s@%d", name, suffix_serial++);
++}
++
++int main(int argc, char *argv[])
++{
++	struct item *head = {NULL};
++	struct item *last = {NULL};
++	struct item *o_head = {NULL};
++	struct item  *current;
++	struct duplicate_item *duplicate, *duplicate_iterator;
++	struct linker_object *lod, *lod_iterator;
++	uint64_t address;
++	int verbose_mode = 0;
++	char t, sym_name[MAX_NAME_SIZE], new_name[MAX_NAME_SIZE];
++	FILE *fp;
++
++	if (argc < 2 || argc > 3) {
++		printf("Usage: %s <nmfile> [-verbose]\n", argv[0]);
++		return 1;
++	}
++	if (argc == 3 && strcmp(argv[2], "-verbose") == 0)
++		verbose_mode = 1;
++
++	if (verbose_mode)
++		printf("Scanning nm data(%s)\n", argv[1]);
++	fp = fopen(argv[1], "r");
++	while (fscanf(fp, "%lx %c %99s\n", &address, &t, sym_name) == 3) {
++		last = add_item(&last, sym_name, t, address);
++		if (!head)
++			head = last;
++	}
++	fclose(fp);
++	if (verbose_mode)
++		printf("Sorting nm data\n");
++	sort_list_m(&head, BY_NAME);
++	if (verbose_mode)
++		printf("Scanning nm data for duplicates\n");
++	duplicate = find_duplicates(head);
++	if (verbose_mode)
++		printf("Applying suffixes\n");
++	build_index(head);
++	duplicate_iterator = duplicate;
++	while (duplicate_iterator) {
++		create_suffix(duplicate_iterator->original_item->symb_name, new_name);
++		if (!insert_after(head, duplicate_iterator->original_item->addr, new_name,
++				  duplicate_iterator->original_item->addr,
++				  duplicate_iterator->original_item->stype))
++			return 1;
++		duplicate_iterator = duplicate_iterator->next;
++	}
++	sort_list_m(&head, BY_ADDRESS);
++	current = head;
++	while (current) {
++		printf("%08lx %c %s\n", current->addr, current->stype, current->symb_name);
++		current = current->next;
++	}
++	return 0;
++}
+diff --git a/scripts/link-vmlinux.sh b/scripts/link-vmlinux.sh
+index a432b171be82..3084b364c0c1 100755
+--- a/scripts/link-vmlinux.sh
++++ b/scripts/link-vmlinux.sh
+@@ -161,6 +161,7 @@ kallsyms()
+ 	fi
+ 
+ 	info KSYMS ${2}
++	scripts/kas_alias/kas_alias ${1} >${1}.alias
+ 	scripts/kallsyms ${kallsymopt} ${1} > ${2}
+ }
+ 
+-- 
+2.34.1
+
