@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 #ifndef DUPLICATES_LIST_H
 #define DUPLICATES_LIST_H
 
@@ -8,6 +9,6 @@ struct duplicate_item {
 	struct duplicate_item *next;
 };
 
-struct duplicate_item* findDuplicates(struct item* list);
+struct duplicate_item *find_duplicates(struct item *list);
 
 #endif
