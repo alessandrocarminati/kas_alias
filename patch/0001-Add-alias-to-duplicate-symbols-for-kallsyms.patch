@@ -1,4 +1,4 @@
-From 2d80f8484481d4461c36b17b6c25ae8bd8432f33 Mon Sep 17 00:00:00 2001
+From 774078ab218298e9b2ed0dacd62bf52391b07c03 Mon Sep 17 00:00:00 2001
 From: Alessandro Carminati <alessandro.carminati@gmail.com>
 Date: Sun, 25 Jun 2023 09:15:38 +0000
 Subject: [PATCH] Add alias to duplicate symbols for kallsyms
@@ -30,8 +30,8 @@ Signed-off-by: Alessandro Carminati <alessandro.carminati@gmail.com>
  scripts/kas_alias/item_list.c       | 205 ++++++++++++++++++++++++++++
  scripts/kas_alias/item_list.h       |  25 ++++
  scripts/kas_alias/kas_alias.c       |  71 ++++++++++
- scripts/link-vmlinux.sh             |   1 +
- 8 files changed, 370 insertions(+)
+ scripts/link-vmlinux.sh             |   3 +-
+ 8 files changed, 371 insertions(+), 1 deletion(-)
  create mode 100644 scripts/kas_alias/Makefile
  create mode 100644 scripts/kas_alias/duplicates_list.c
  create mode 100644 scripts/kas_alias/duplicates_list.h
@@ -456,17 +456,19 @@ index 000000000000..824af30fcf72
 +	return 0;
 +}
 diff --git a/scripts/link-vmlinux.sh b/scripts/link-vmlinux.sh
-index a432b171be82..3084b364c0c1 100755
+index a432b171be82..cafa8757f550 100755
 --- a/scripts/link-vmlinux.sh
 +++ b/scripts/link-vmlinux.sh
-@@ -161,6 +161,7 @@ kallsyms()
+@@ -161,7 +161,8 @@ kallsyms()
  	fi
  
  	info KSYMS ${2}
+-	scripts/kallsyms ${kallsymopt} ${1} > ${2}
 +	scripts/kas_alias/kas_alias ${1} >${1}.alias
- 	scripts/kallsyms ${kallsymopt} ${1} > ${2}
++	scripts/kallsyms ${kallsymopt}.alias ${1} > ${2}
  }
  
+ # Perform one step in kallsyms generation, including temporary linking of
 -- 
 2.34.1
 
