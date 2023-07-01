@@ -1,4 +1,4 @@
-From 61d22ddbe76c51832850f35db2adad36804031e2 Mon Sep 17 00:00:00 2001
+From 3c4fbeb0a58177ae53acc2a979570bcaf74aa233 Mon Sep 17 00:00:00 2001
 From: Alessandro Carminati <alessandro.carminati@gmail.com>
 Date: Sun, 25 Jun 2023 09:15:38 +0000
 Subject: [PATCH] Add alias to duplicate symbols for kallsyms
@@ -25,13 +25,13 @@ Signed-off-by: Alessandro Carminati <alessandro.carminati@gmail.com>
 ---
  scripts/Makefile                    |   1 +
  scripts/kas_alias/Makefile          |   5 +
- scripts/kas_alias/duplicates_list.c |  67 ++++++++
+ scripts/kas_alias/duplicates_list.c |  78 ++++++++++
  scripts/kas_alias/duplicates_list.h |  20 +++
  scripts/kas_alias/item_list.c       | 229 ++++++++++++++++++++++++++++
  scripts/kas_alias/item_list.h       |  31 ++++
  scripts/kas_alias/kas_alias.c       |  89 +++++++++++
  scripts/link-vmlinux.sh             |   3 +-
- 8 files changed, 444 insertions(+), 1 deletion(-)
+ 8 files changed, 455 insertions(+), 1 deletion(-)
  create mode 100644 scripts/kas_alias/Makefile
  create mode 100644 scripts/kas_alias/duplicates_list.c
  create mode 100644 scripts/kas_alias/duplicates_list.h
@@ -64,15 +64,16 @@ index 000000000000..f4dc322a6392
 +
 diff --git a/scripts/kas_alias/duplicates_list.c b/scripts/kas_alias/duplicates_list.c
 new file mode 100644
-index 000000000000..512733fa12f2
+index 000000000000..d07d084781c3
 --- /dev/null
 +++ b/scripts/kas_alias/duplicates_list.c
-@@ -0,0 +1,67 @@
+@@ -0,0 +1,78 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +#include <stdint.h>
 +#include <stdio.h>
 +#include <string.h>
 +#include <stdlib.h>
++#include <stdbool.h>
 +
 +#include "item_list.h"
 +#include "duplicates_list.h"
@@ -89,9 +90,11 @@ index 000000000000..512733fa12f2
 +	struct item *current_item = list;
 +	struct item *prev_item = NULL;
 +	struct duplicate_item *new_duplicate;
++	bool   prev_was_duplicate = false;
 +
 +	while (current_item) {
-+		if (prev_item && strcmp(current_item->symb_name, prev_item->symb_name) == 0) {
++		if (prev_item && (strcmp(current_item->symb_name, prev_item->symb_name) == 0) ||
++		    prev_was_duplicate) {
 +			if (!duplicates) {
 +#ifdef DEBUG
 +				duplicates_alloc_cnt++;
@@ -101,6 +104,10 @@ index 000000000000..512733fa12f2
 +				duplicates->original_item = prev_item;
 +				duplicates->next = NULL;
 +				current_duplicate = duplicates;
++				if (prev_was_duplicate)
++					prev_was_duplicate = false;
++				else
++					prev_was_duplicate = true;
 +			} else {
 +#ifdef DEBUG
 +				duplicates_alloc_cnt++;
@@ -111,6 +118,10 @@ index 000000000000..512733fa12f2
 +				new_duplicate->next = NULL;
 +				current_duplicate->next = new_duplicate;
 +				current_duplicate = new_duplicate;
++				if (prev_was_duplicate)
++					prev_was_duplicate = false;
++				else
++					prev_was_duplicate = true;
 +			}
 +		}
 +
