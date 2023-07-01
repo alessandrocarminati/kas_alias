@@ -1,4 +1,4 @@
-From a415a8f2d08c508dbb663ebd1c87a1353e030382 Mon Sep 17 00:00:00 2001
+From 61d22ddbe76c51832850f35db2adad36804031e2 Mon Sep 17 00:00:00 2001
 From: Alessandro Carminati <alessandro.carminati@gmail.com>
 Date: Sun, 25 Jun 2023 09:15:38 +0000
 Subject: [PATCH] Add alias to duplicate symbols for kallsyms
@@ -529,7 +529,7 @@ index 000000000000..d58aab0ddd64
 +	return 0;
 +}
 diff --git a/scripts/link-vmlinux.sh b/scripts/link-vmlinux.sh
-index a432b171be82..cafa8757f550 100755
+index a432b171be82..39bfd378fed1 100755
 --- a/scripts/link-vmlinux.sh
 +++ b/scripts/link-vmlinux.sh
 @@ -161,7 +161,8 @@ kallsyms()
@@ -538,7 +538,7 @@ index a432b171be82..cafa8757f550 100755
  	info KSYMS ${2}
 -	scripts/kallsyms ${kallsymopt} ${1} > ${2}
 +	scripts/kas_alias/kas_alias ${1} >${1}.alias
-+	scripts/kallsyms ${kallsymopt}.alias ${1} > ${2}
++	scripts/kallsyms ${kallsymopt} ${1}.alias > ${2}
  }
  
  # Perform one step in kallsyms generation, including temporary linking of
