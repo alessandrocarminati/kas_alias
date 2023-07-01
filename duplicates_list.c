@@ -53,7 +53,7 @@ struct duplicate_item *find_duplicates(struct item *list)
 
 void free_duplicates(struct duplicate_item **duplicates)
 {
-	struct duplicate_item *app, *duplicates_iterator=*duplicates;
+	struct duplicate_item *app, *duplicates_iterator = *duplicates;
 
 	while (duplicates_iterator) {
 		app = duplicates_iterator;

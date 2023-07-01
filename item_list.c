@@ -33,6 +33,7 @@ struct item *add_item(struct item **list, const char *name, char stype, uint64_t
 	item_alloc_cnt++;
 #endif
 	struct item *new_item = (struct item *)malloc(sizeof(struct item));
+
 	strncpy(new_item->symb_name, name, MAX_NAME_SIZE);
 	new_item->addr = addr;
 	new_item->stype = stype;
@@ -70,10 +71,10 @@ void sort_list(struct item **list, int sort_by)
 		} else {
 			temp = sorted;
 			while (temp->next &&
-			       ((sort_by == BY_ADDRESS && current->addr >= temp->next->addr) ||
-			       (sort_by == BY_NAME &&
-			       strcmp(current->symb_name, temp->next->symb_name) >= 0))) {
-					temp = temp->next;
+			      ((sort_by == BY_ADDRESS && current->addr >= temp->next->addr) ||
+			      (sort_by == BY_NAME &&
+			      strcmp(current->symb_name, temp->next->symb_name) >= 0))) {
+				temp = temp->next;
 				}
 			current->next = temp->next;
 			temp->next = current;
@@ -214,7 +215,7 @@ int insert_after(struct item *list, const uint64_t search_addr,
 
 void free_items(struct item **head)
 {
-	struct item *app, *item_iterator=*head;
+	struct item *app, *item_iterator = *head;
 
 	while (item_iterator) {
 		app = item_iterator;
