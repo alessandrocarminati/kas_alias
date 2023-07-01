@@ -15,5 +15,6 @@ extern int duplicates_alloc_cnt;
 #endif
 
 struct duplicate_item *find_duplicates(struct item *list);
+void free_duplicates(struct duplicate_item **duplicates);
 
 #endif

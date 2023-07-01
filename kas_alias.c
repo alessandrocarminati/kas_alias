@@ -67,6 +67,11 @@ int main(int argc, char *argv[])
 		current = current->next;
 	}
 #ifdef DEBUG
+	printf("Alloc statistics before: remained items=%d, remained duplicates=%d\n", item_alloc_cnt, duplicates_alloc_cnt);
+#endif
+	free_items(&head);
+	free_duplicates(&duplicate);
+#ifdef DEBUG
 	printf("Alloc statistics after: remained items=%d, remained duplicates=%d\n", item_alloc_cnt, duplicates_alloc_cnt);
 #endif
  

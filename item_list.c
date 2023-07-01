@@ -211,3 +211,17 @@ int insert_after(struct item *list, const uint64_t search_addr,
 	assert(ret != 0);
 	return ret;
 }
+
+void free_items(struct item **head){
+	struct item *app, *item_iterator=*head;
+
+        while (item_iterator) {
+                app=item_iterator;
+                item_iterator=item_iterator->next;
+                free(app);
+#ifdef DEBUG
+		item_alloc_cnt--;
+#endif
+        }
+        *head=NULL;
+}

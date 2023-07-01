@@ -27,4 +27,5 @@ struct item *merge_sort(struct item *head, int sort_by);
 void sort_list_m(struct item **head, int sort_by);
 int insert_after(struct item *list, const uint64_t search_addr,
 		 const char *name, uint64_t addr, char stype);
+void free_items(struct item **head);
 #endif
