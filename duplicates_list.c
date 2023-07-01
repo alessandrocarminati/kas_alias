@@ -8,7 +8,7 @@
 #include "duplicates_list.h"
 
 #ifdef DEBUG
-int duplicates_alloc_cnt=0;
+int duplicates_alloc_cnt;
 #endif
 
 
@@ -33,7 +33,7 @@ struct duplicate_item *find_duplicates(struct item *list)
 				current_duplicate = duplicates;
 			} else {
 #ifdef DEBUG
-                                duplicates_alloc_cnt++;
+				duplicates_alloc_cnt++;
 #endif
 				new_duplicate = (struct duplicate_item *)
 					malloc(sizeof(struct duplicate_item));
@@ -51,16 +51,17 @@ struct duplicate_item *find_duplicates(struct item *list)
 	return duplicates;
 }
 
-void free_duplicates(struct duplicate_item **duplicates){
+void free_duplicates(struct duplicate_item **duplicates)
+{
 	struct duplicate_item *app, *duplicates_iterator=*duplicates;
 
 	while (duplicates_iterator) {
-		app=duplicates_iterator;
-		duplicates_iterator=duplicates_iterator->next;
+		app = duplicates_iterator;
+		duplicates_iterator = duplicates_iterator->next;
 		free(app);
 #ifdef DEBUG
-                                duplicates_alloc_cnt--;
+		duplicates_alloc_cnt--;
 #endif
 	}
-	*duplicates=NULL;
+	*duplicates = NULL;
 }

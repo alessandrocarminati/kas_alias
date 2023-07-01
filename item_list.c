@@ -9,7 +9,7 @@
 
 struct item *list_index[96] = {0};
 #ifdef DEBUG
-int item_alloc_cnt=0;
+int item_alloc_cnt;
 #endif
 
 
@@ -195,7 +195,7 @@ int insert_after(struct item *list, const uint64_t search_addr,
 	while (current) {
 		if (current->addr == search_addr) {
 #ifdef DEBUG
-        item_alloc_cnt++;
+			item_alloc_cnt++;
 #endif
 			new_item = (struct item *)malloc(sizeof(struct item));
 			strncpy(new_item->symb_name, name, MAX_NAME_SIZE);
@@ -212,16 +212,17 @@ int insert_after(struct item *list, const uint64_t search_addr,
 	return ret;
 }
 
-void free_items(struct item **head){
+void free_items(struct item **head)
+{
 	struct item *app, *item_iterator=*head;
 
-        while (item_iterator) {
-                app=item_iterator;
-                item_iterator=item_iterator->next;
-                free(app);
+	while (item_iterator) {
+		app = item_iterator;
+		item_iterator = item_iterator->next;
+		free(app);
 #ifdef DEBUG
 		item_alloc_cnt--;
 #endif
-        }
-        *head=NULL;
+	}
+	*head = NULL;
 }

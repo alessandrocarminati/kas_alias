@@ -24,7 +24,7 @@ int main(int argc, char *argv[])
 	uint64_t address;
 	int verbose_mode = 0;
 	char t, sym_name[MAX_NAME_SIZE], new_name[MAX_NAME_SIZE];
-	bool need_2_process=true;
+	bool need_2_process = true;
 	FILE *fp;
 
 	if (argc < 2 || argc > 3) {
@@ -39,8 +39,9 @@ int main(int argc, char *argv[])
 	fp = fopen(argv[1], "r");
 	while (fscanf(fp, "%lx %c %99s\n", &address, &t, sym_name) == 3) {
 		if (strstr(sym_name, "@1") != NULL) {
-			if (verbose_mode && need_2_process) printf("Already processed\n");
-			need_2_process=false;
+			if (verbose_mode && need_2_process)
+				printf("Already processed\n");
+			need_2_process = false;
 			}
 		last = add_item(&last, sym_name, t, address);
 		if (!head)
@@ -74,14 +75,15 @@ int main(int argc, char *argv[])
 		current = current->next;
 	}
 #ifdef DEBUG
-	printf("Alloc statistics before: remained items=%d, remained duplicates=%d\n", item_alloc_cnt, duplicates_alloc_cnt);
+	printf("Alloc statistics before: remained items=%d, remained duplicates=%d\n",
+		item_alloc_cnt, duplicates_alloc_cnt);
 #endif
 	free_items(&head);
 	free_duplicates(&duplicate);
 #ifdef DEBUG
-	printf("Alloc statistics after: remained items=%d, remained duplicates=%d\n", item_alloc_cnt, duplicates_alloc_cnt);
+	printf("Alloc statistics after: remained items=%d, remained duplicates=%d\n",
+		item_alloc_cnt, duplicates_alloc_cnt);
 #endif
- 
+
 	return 0;
 }
-
