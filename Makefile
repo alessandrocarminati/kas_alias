@@ -1,4 +1,4 @@
-#CFLAGS=-pg -g
+#CFLAGS= -pg -g -Wall -std=gnu89
 
 
 all: main
