@@ -1,4 +1,4 @@
-From 3c4fbeb0a58177ae53acc2a979570bcaf74aa233 Mon Sep 17 00:00:00 2001
+From be8ef0711581ad3cf8d9eb7b2f4b72fe0bf46752 Mon Sep 17 00:00:00 2001
 From: Alessandro Carminati <alessandro.carminati@gmail.com>
 Date: Sun, 25 Jun 2023 09:15:38 +0000
 Subject: [PATCH] Add alias to duplicate symbols for kallsyms
@@ -17,9 +17,10 @@ between them. This can lead to confusion and difficulty when trying to
 probe the intended symbol.
 
 **kas_alias** addresses this challenge by extending the symbol names with
-unique suffixes during the kernel build process. By doing so, it enables
-performance engineers to effectively trace or probe symbols that would
-otherwise be indistinguishable based on name alone.
+unique suffixes during the kernel build process.
+The newly created aliases for these duplicated symbols are unique names that
+can be fed to the ftrace sysfs interface. By doing so, it enables
+previously unreachable symbols to me probed.
 
 Signed-off-by: Alessandro Carminati <alessandro.carminati@gmail.com>
 ---
