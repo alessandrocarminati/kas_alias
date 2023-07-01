@@ -23,7 +23,7 @@ int main(int argc, char *argv[])
 	struct duplicate_item *duplicate, *duplicate_iterator;
 	uint64_t address;
 	int verbose_mode = 0;
-	char t, sym_name[MAX_NAME_SIZE], new_name[MAX_NAME_SIZE];
+	char t, sym_name[MAX_NAME_SIZE], new_name[MAX_NAME_SIZE+15]; // 15 is a safemargin to prevent overflows
 	bool need_2_process = true;
 	FILE *fp;
 

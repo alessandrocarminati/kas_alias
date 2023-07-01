@@ -23,7 +23,7 @@ struct duplicate_item *find_duplicates(struct item *list)
 	bool   prev_was_duplicate = false;
 
 	while (current_item) {
-		if (prev_item && (strcmp(current_item->symb_name, prev_item->symb_name) == 0) ||
+		if ((prev_item && (strcmp(current_item->symb_name, prev_item->symb_name) == 0)) ||
 		    prev_was_duplicate) {
 			if (!duplicates) {
 #ifdef DEBUG

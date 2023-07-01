@@ -29,16 +29,17 @@ void build_index(struct item *list)
 
 struct item *add_item(struct item **list, const char *name, char stype, uint64_t addr)
 {
+	struct item *current;
+	struct item *new_item = (struct item *)malloc(sizeof(struct item));
+
 #ifdef DEBUG
 	item_alloc_cnt++;
 #endif
-	struct item *new_item = (struct item *)malloc(sizeof(struct item));
-
 	strncpy(new_item->symb_name, name, MAX_NAME_SIZE);
+	new_item->symb_name[MAX_NAME_SIZE - 1] = '\0';
 	new_item->addr = addr;
 	new_item->stype = stype;
 	new_item->next = NULL;
-	struct item *current;
 
 	if (!(*list)) {
 		*list = new_item;
@@ -200,6 +201,7 @@ int insert_after(struct item *list, const uint64_t search_addr,
 #endif
 			new_item = (struct item *)malloc(sizeof(struct item));
 			strncpy(new_item->symb_name, name, MAX_NAME_SIZE);
+			new_item->symb_name[MAX_NAME_SIZE - 1] = '\0';
 			new_item->addr = addr;
 			new_item->stype = stype;
 			new_item->next = current->next;
