@@ -9,7 +9,7 @@
 #include "duplicates_list.h"
 
 int suffix_serial;
-void create_suffix(const char *name, char *output_suffix)
+static void create_suffix(const char *name, char *output_suffix)
 {
 	sprintf(output_suffix, "%s@%d", name, suffix_serial++);
 }
