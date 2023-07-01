@@ -1,4 +1,4 @@
-From 774078ab218298e9b2ed0dacd62bf52391b07c03 Mon Sep 17 00:00:00 2001
+From a415a8f2d08c508dbb663ebd1c87a1353e030382 Mon Sep 17 00:00:00 2001
 From: Alessandro Carminati <alessandro.carminati@gmail.com>
 Date: Sun, 25 Jun 2023 09:15:38 +0000
 Subject: [PATCH] Add alias to duplicate symbols for kallsyms
@@ -25,13 +25,13 @@ Signed-off-by: Alessandro Carminati <alessandro.carminati@gmail.com>
 ---
  scripts/Makefile                    |   1 +
  scripts/kas_alias/Makefile          |   5 +
- scripts/kas_alias/duplicates_list.c |  48 +++++++
- scripts/kas_alias/duplicates_list.h |  14 ++
- scripts/kas_alias/item_list.c       | 205 ++++++++++++++++++++++++++++
- scripts/kas_alias/item_list.h       |  25 ++++
- scripts/kas_alias/kas_alias.c       |  71 ++++++++++
+ scripts/kas_alias/duplicates_list.c |  67 ++++++++
+ scripts/kas_alias/duplicates_list.h |  20 +++
+ scripts/kas_alias/item_list.c       | 229 ++++++++++++++++++++++++++++
+ scripts/kas_alias/item_list.h       |  31 ++++
+ scripts/kas_alias/kas_alias.c       |  89 +++++++++++
  scripts/link-vmlinux.sh             |   3 +-
- 8 files changed, 371 insertions(+), 1 deletion(-)
+ 8 files changed, 444 insertions(+), 1 deletion(-)
  create mode 100644 scripts/kas_alias/Makefile
  create mode 100644 scripts/kas_alias/duplicates_list.c
  create mode 100644 scripts/kas_alias/duplicates_list.h
@@ -64,10 +64,10 @@ index 000000000000..f4dc322a6392
 +
 diff --git a/scripts/kas_alias/duplicates_list.c b/scripts/kas_alias/duplicates_list.c
 new file mode 100644
-index 000000000000..6d4145aabd25
+index 000000000000..512733fa12f2
 --- /dev/null
 +++ b/scripts/kas_alias/duplicates_list.c
-@@ -0,0 +1,48 @@
+@@ -0,0 +1,67 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +#include <stdint.h>
 +#include <stdio.h>
@@ -76,6 +76,11 @@ index 000000000000..6d4145aabd25
 +
 +#include "item_list.h"
 +#include "duplicates_list.h"
++
++#ifdef DEBUG
++int duplicates_alloc_cnt;
++#endif
++
 +
 +struct duplicate_item *find_duplicates(struct item *list)
 +{
@@ -88,12 +93,18 @@ index 000000000000..6d4145aabd25
 +	while (current_item) {
 +		if (prev_item && strcmp(current_item->symb_name, prev_item->symb_name) == 0) {
 +			if (!duplicates) {
++#ifdef DEBUG
++				duplicates_alloc_cnt++;
++#endif
 +				duplicates = (struct duplicate_item *)
 +					malloc(sizeof(struct duplicate_item));
 +				duplicates->original_item = prev_item;
 +				duplicates->next = NULL;
 +				current_duplicate = duplicates;
 +			} else {
++#ifdef DEBUG
++				duplicates_alloc_cnt++;
++#endif
 +				new_duplicate = (struct duplicate_item *)
 +					malloc(sizeof(struct duplicate_item));
 +				new_duplicate->original_item = prev_item;
@@ -101,13 +112,6 @@ index 000000000000..6d4145aabd25
 +				current_duplicate->next = new_duplicate;
 +				current_duplicate = new_duplicate;
 +			}
-+
-+			new_duplicate = (struct duplicate_item *)
-+				malloc(sizeof(struct duplicate_item));
-+			new_duplicate->original_item = current_item;
-+			new_duplicate->next = NULL;
-+			current_duplicate->next = new_duplicate;
-+			current_duplicate = new_duplicate;
 +		}
 +
 +		prev_item = current_item;
@@ -116,32 +120,53 @@ index 000000000000..6d4145aabd25
 +
 +	return duplicates;
 +}
++
++void free_duplicates(struct duplicate_item **duplicates)
++{
++	struct duplicate_item *app, *duplicates_iterator = *duplicates;
++
++	while (duplicates_iterator) {
++		app = duplicates_iterator;
++		duplicates_iterator = duplicates_iterator->next;
++		free(app);
++#ifdef DEBUG
++		duplicates_alloc_cnt--;
++#endif
++	}
++	*duplicates = NULL;
++}
 diff --git a/scripts/kas_alias/duplicates_list.h b/scripts/kas_alias/duplicates_list.h
 new file mode 100644
-index 000000000000..544a2671fed6
+index 000000000000..4d2a14eb7819
 --- /dev/null
 +++ b/scripts/kas_alias/duplicates_list.h
-@@ -0,0 +1,14 @@
+@@ -0,0 +1,20 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +#ifndef DUPLICATES_LIST_H
 +#define DUPLICATES_LIST_H
 +
 +#include "item_list.h"
++//#define DEBUG
 +
 +struct duplicate_item {
 +	struct item *original_item;
 +	struct duplicate_item *next;
 +};
 +
++#ifdef DEBUG
++extern int duplicates_alloc_cnt;
++#endif
++
 +struct duplicate_item *find_duplicates(struct item *list);
++void free_duplicates(struct duplicate_item **duplicates);
 +
 +#endif
 diff --git a/scripts/kas_alias/item_list.c b/scripts/kas_alias/item_list.c
 new file mode 100644
-index 000000000000..dc39424dddfc
+index 000000000000..a33647ac583a
 --- /dev/null
 +++ b/scripts/kas_alias/item_list.c
-@@ -0,0 +1,205 @@
+@@ -0,0 +1,229 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +#include <stdio.h>
 +#include <stdlib.h>
@@ -149,10 +174,13 @@ index 000000000000..dc39424dddfc
 +#include <string.h>
 +#include <stdbool.h>
 +#include <assert.h>
-+
 +#include "item_list.h"
 +
 +struct item *list_index[96] = {0};
++#ifdef DEBUG
++int item_alloc_cnt;
++#endif
++
 +
 +void build_index(struct item *list)
 +{
@@ -170,6 +198,9 @@ index 000000000000..dc39424dddfc
 +
 +struct item *add_item(struct item **list, const char *name, char stype, uint64_t addr)
 +{
++#ifdef DEBUG
++	item_alloc_cnt++;
++#endif
 +	struct item *new_item = (struct item *)malloc(sizeof(struct item));
 +
 +	strncpy(new_item->symb_name, name, MAX_NAME_SIZE);
@@ -209,10 +240,10 @@ index 000000000000..dc39424dddfc
 +		} else {
 +			temp = sorted;
 +			while (temp->next &&
-+			       ((sort_by == BY_ADDRESS && current->addr >= temp->next->addr) ||
-+			       (sort_by == BY_NAME &&
-+			       strcmp(current->symb_name, temp->next->symb_name) >= 0))) {
-+					temp = temp->next;
++			      ((sort_by == BY_ADDRESS && current->addr >= temp->next->addr) ||
++			      (sort_by == BY_NAME &&
++			      strcmp(current->symb_name, temp->next->symb_name) >= 0))) {
++				temp = temp->next;
 +				}
 +			current->next = temp->next;
 +			temp->next = current;
@@ -327,12 +358,15 @@ index 000000000000..dc39424dddfc
 +int insert_after(struct item *list, const uint64_t search_addr,
 +		 const char *name, uint64_t addr, char stype)
 +{
-+	struct item *next_item, *new_item;
++	struct item *new_item;
 +	int ret = 0;
 +	struct item *current = (list_index[name[0] - 32]) ? list_index[name[0] - 32] : list;
 +
 +	while (current) {
 +		if (current->addr == search_addr) {
++#ifdef DEBUG
++			item_alloc_cnt++;
++#endif
 +			new_item = (struct item *)malloc(sizeof(struct item));
 +			strncpy(new_item->symb_name, name, MAX_NAME_SIZE);
 +			new_item->addr = addr;
@@ -347,12 +381,27 @@ index 000000000000..dc39424dddfc
 +	assert(ret != 0);
 +	return ret;
 +}
++
++void free_items(struct item **head)
++{
++	struct item *app, *item_iterator = *head;
++
++	while (item_iterator) {
++		app = item_iterator;
++		item_iterator = item_iterator->next;
++		free(app);
++#ifdef DEBUG
++		item_alloc_cnt--;
++#endif
++	}
++	*head = NULL;
++}
 diff --git a/scripts/kas_alias/item_list.h b/scripts/kas_alias/item_list.h
 new file mode 100644
-index 000000000000..203887d97d1d
+index 000000000000..31bf9620353b
 --- /dev/null
 +++ b/scripts/kas_alias/item_list.h
-@@ -0,0 +1,25 @@
+@@ -0,0 +1,31 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +#ifndef ITEM_LIST_H
 +#define ITEM_LIST_H
@@ -361,6 +410,7 @@ index 000000000000..203887d97d1d
 +#define MAX_NAME_SIZE 256
 +#define BY_ADDRESS 1
 +#define BY_NAME 2
++//#define DEBUG
 +
 +struct item {
 +	char		symb_name[MAX_NAME_SIZE];
@@ -368,6 +418,10 @@ index 000000000000..203887d97d1d
 +	char		stype;
 +	struct item	*next;
 +};
++
++#ifdef DEBUG
++extern int item_alloc_cnt;
++#endif
 +
 +void build_index(struct item *list);
 +struct item *add_item(struct item **list, const char *name, char stype, uint64_t addr);
@@ -377,13 +431,14 @@ index 000000000000..203887d97d1d
 +void sort_list_m(struct item **head, int sort_by);
 +int insert_after(struct item *list, const uint64_t search_addr,
 +		 const char *name, uint64_t addr, char stype);
++void free_items(struct item **head);
 +#endif
 diff --git a/scripts/kas_alias/kas_alias.c b/scripts/kas_alias/kas_alias.c
 new file mode 100644
-index 000000000000..824af30fcf72
+index 000000000000..d58aab0ddd64
 --- /dev/null
 +++ b/scripts/kas_alias/kas_alias.c
-@@ -0,0 +1,71 @@
+@@ -0,0 +1,89 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +#include <stdio.h>
 +#include <stdlib.h>
@@ -393,9 +448,10 @@ index 000000000000..824af30fcf72
 +
 +#include "item_list.h"
 +#include "duplicates_list.h"
++//#define DEBUG
 +
 +int suffix_serial;
-+void create_suffix(const char *name, char *output_suffix)
++static void create_suffix(const char *name, char *output_suffix)
 +{
 +	sprintf(output_suffix, "%s@%d", name, suffix_serial++);
 +}
@@ -404,13 +460,12 @@ index 000000000000..824af30fcf72
 +{
 +	struct item *head = {NULL};
 +	struct item *last = {NULL};
-+	struct item *o_head = {NULL};
 +	struct item  *current;
 +	struct duplicate_item *duplicate, *duplicate_iterator;
-+	struct linker_object *lod, *lod_iterator;
 +	uint64_t address;
 +	int verbose_mode = 0;
 +	char t, sym_name[MAX_NAME_SIZE], new_name[MAX_NAME_SIZE];
++	bool need_2_process = true;
 +	FILE *fp;
 +
 +	if (argc < 2 || argc > 3) {
@@ -424,35 +479,53 @@ index 000000000000..824af30fcf72
 +		printf("Scanning nm data(%s)\n", argv[1]);
 +	fp = fopen(argv[1], "r");
 +	while (fscanf(fp, "%lx %c %99s\n", &address, &t, sym_name) == 3) {
++		if (strstr(sym_name, "@1") != NULL) {
++			if (verbose_mode && need_2_process)
++				printf("Already processed\n");
++			need_2_process = false;
++			}
 +		last = add_item(&last, sym_name, t, address);
 +		if (!head)
 +			head = last;
 +	}
 +	fclose(fp);
-+	if (verbose_mode)
-+		printf("Sorting nm data\n");
-+	sort_list_m(&head, BY_NAME);
-+	if (verbose_mode)
-+		printf("Scanning nm data for duplicates\n");
-+	duplicate = find_duplicates(head);
-+	if (verbose_mode)
-+		printf("Applying suffixes\n");
-+	build_index(head);
-+	duplicate_iterator = duplicate;
-+	while (duplicate_iterator) {
-+		create_suffix(duplicate_iterator->original_item->symb_name, new_name);
-+		if (!insert_after(head, duplicate_iterator->original_item->addr, new_name,
-+				  duplicate_iterator->original_item->addr,
-+				  duplicate_iterator->original_item->stype))
-+			return 1;
-+		duplicate_iterator = duplicate_iterator->next;
++	if (need_2_process) {
++		if (verbose_mode)
++			printf("Sorting nm data\n");
++		sort_list_m(&head, BY_NAME);
++		if (verbose_mode)
++			printf("Scanning nm data for duplicates\n");
++		duplicate = find_duplicates(head);
++		if (verbose_mode)
++			printf("Applying suffixes\n");
++		build_index(head);
++		duplicate_iterator = duplicate;
++		while (duplicate_iterator) {
++			create_suffix(duplicate_iterator->original_item->symb_name, new_name);
++			if (!insert_after(head, duplicate_iterator->original_item->addr, new_name,
++					  duplicate_iterator->original_item->addr,
++					  duplicate_iterator->original_item->stype))
++				return 1;
++			duplicate_iterator = duplicate_iterator->next;
++		}
++		sort_list_m(&head, BY_ADDRESS);
 +	}
-+	sort_list_m(&head, BY_ADDRESS);
 +	current = head;
 +	while (current) {
 +		printf("%08lx %c %s\n", current->addr, current->stype, current->symb_name);
 +		current = current->next;
 +	}
++#ifdef DEBUG
++	printf("Alloc statistics before: remained items=%d, remained duplicates=%d\n",
++		item_alloc_cnt, duplicates_alloc_cnt);
++#endif
++	free_items(&head);
++	free_duplicates(&duplicate);
++#ifdef DEBUG
++	printf("Alloc statistics after: remained items=%d, remained duplicates=%d\n",
++		item_alloc_cnt, duplicates_alloc_cnt);
++#endif
++
 +	return 0;
 +}
 diff --git a/scripts/link-vmlinux.sh b/scripts/link-vmlinux.sh
