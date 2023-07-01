@@ -42,13 +42,6 @@ struct duplicate_item *find_duplicates(struct item *list)
 				current_duplicate->next = new_duplicate;
 				current_duplicate = new_duplicate;
 			}
-
-			new_duplicate = (struct duplicate_item *)
-				malloc(sizeof(struct duplicate_item));
-			new_duplicate->original_item = current_item;
-			new_duplicate->next = NULL;
-			current_duplicate->next = new_duplicate;
-			current_duplicate = new_duplicate;
 		}
 
 		prev_item = current_item;
