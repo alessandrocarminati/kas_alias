@@ -75,3 +75,9 @@ ffffffffb2e48260 T __pfx_device_show_bool
 p:kprobes/evnt1 __pfx_device_show@7791
 ~ # 
 ```
+
+# Patch the kernel
+
+Here is a proposal to patch the kernel build process and integrate 
+the utility within it. In the `patch` directory, there is a 
+ready-to-use patch for the current kernel version `6.4`.
