@@ -183,7 +183,7 @@ void sort_list_m(struct item **head, int sort_by)
 int insert_after(struct item *list, const uint64_t search_addr,
 		 const char *name, uint64_t addr, char stype)
 {
-	struct item *next_item, *new_item;
+	struct item *new_item;
 	int ret = 0;
 	struct item *current = (list_index[name[0] - 32]) ? list_index[name[0] - 32] : list;
 

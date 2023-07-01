@@ -18,10 +18,8 @@ int main(int argc, char *argv[])
 {
 	struct item *head = {NULL};
 	struct item *last = {NULL};
-	struct item *o_head = {NULL};
 	struct item  *current;
 	struct duplicate_item *duplicate, *duplicate_iterator;
-	struct linker_object *lod, *lod_iterator;
 	uint64_t address;
 	int verbose_mode = 0;
 	char t, sym_name[MAX_NAME_SIZE], new_name[MAX_NAME_SIZE];
