@@ -5,10 +5,13 @@
 #include <string.h>
 #include <stdbool.h>
 #include <assert.h>
-
 #include "item_list.h"
 
 struct item *list_index[96] = {0};
+#ifdef DEBUG
+int item_alloc_cnt=0;
+#endif
+
 
 void build_index(struct item *list)
 {
@@ -26,8 +29,10 @@ void build_index(struct item *list)
 
 struct item *add_item(struct item **list, const char *name, char stype, uint64_t addr)
 {
+#ifdef DEBUG
+	item_alloc_cnt++;
+#endif
 	struct item *new_item = (struct item *)malloc(sizeof(struct item));
-
 	strncpy(new_item->symb_name, name, MAX_NAME_SIZE);
 	new_item->addr = addr;
 	new_item->stype = stype;
@@ -189,6 +194,9 @@ int insert_after(struct item *list, const uint64_t search_addr,
 
 	while (current) {
 		if (current->addr == search_addr) {
+#ifdef DEBUG
+        item_alloc_cnt++;
+#endif
 			new_item = (struct item *)malloc(sizeof(struct item));
 			strncpy(new_item->symb_name, name, MAX_NAME_SIZE);
 			new_item->addr = addr;

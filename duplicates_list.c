@@ -7,6 +7,11 @@
 #include "item_list.h"
 #include "duplicates_list.h"
 
+#ifdef DEBUG
+int duplicates_alloc_cnt=0;
+#endif
+
+
 struct duplicate_item *find_duplicates(struct item *list)
 {
 	struct duplicate_item *duplicates = NULL;
@@ -18,12 +23,18 @@ struct duplicate_item *find_duplicates(struct item *list)
 	while (current_item) {
 		if (prev_item && strcmp(current_item->symb_name, prev_item->symb_name) == 0) {
 			if (!duplicates) {
+#ifdef DEBUG
+				duplicates_alloc_cnt++;
+#endif
 				duplicates = (struct duplicate_item *)
 					malloc(sizeof(struct duplicate_item));
 				duplicates->original_item = prev_item;
 				duplicates->next = NULL;
 				current_duplicate = duplicates;
 			} else {
+#ifdef DEBUG
+                                duplicates_alloc_cnt++;
+#endif
 				new_duplicate = (struct duplicate_item *)
 					malloc(sizeof(struct duplicate_item));
 				new_duplicate->original_item = prev_item;

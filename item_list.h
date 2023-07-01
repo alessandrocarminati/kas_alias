@@ -6,6 +6,7 @@
 #define MAX_NAME_SIZE 256
 #define BY_ADDRESS 1
 #define BY_NAME 2
+//#define DEBUG
 
 struct item {
 	char		symb_name[MAX_NAME_SIZE];
@@ -13,6 +14,10 @@ struct item {
 	char		stype;
 	struct item	*next;
 };
+
+#ifdef DEBUG
+extern int item_alloc_cnt;
+#endif
 
 void build_index(struct item *list);
 struct item *add_item(struct item **list, const char *name, char stype, uint64_t addr);

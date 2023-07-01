@@ -7,6 +7,7 @@
 
 #include "item_list.h"
 #include "duplicates_list.h"
+//#define DEBUG
 
 int suffix_serial;
 static void create_suffix(const char *name, char *output_suffix)
@@ -65,5 +66,10 @@ int main(int argc, char *argv[])
 		printf("%08lx %c %s\n", current->addr, current->stype, current->symb_name);
 		current = current->next;
 	}
+#ifdef DEBUG
+	printf("Alloc statistics after: remained items=%d, remained duplicates=%d\n", item_alloc_cnt, duplicates_alloc_cnt);
+#endif
+ 
 	return 0;
 }
+
