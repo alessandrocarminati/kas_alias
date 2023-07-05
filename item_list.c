@@ -10,13 +10,24 @@
 struct item *list_index[96] = {0};
 #ifdef DEBUG
 int item_alloc_cnt;
+static inline void inc_item_cnt(void)
+{
+	item_alloc_cnt++;
+}
+static inline void dec_item_cnt(void)
+{
+	item_alloc_cnt--;
+}
+#else
+static inline void inc_item_cnt(void) {};
+static inline void dec_item_cnt(void) {};
 #endif
 
 
 void build_index(struct item *list)
 {
-	struct item *current = list;
 	char current_first_letter = ' ';
+	struct item *current = list;
 
 	while (current) {
 		if (current->symb_name[0] != current_first_letter) {
@@ -25,16 +36,19 @@ void build_index(struct item *list)
 			}
 		current = current->next;
 		}
+
 }
 
 struct item *add_item(struct item **list, const char *name, char stype, uint64_t addr)
 {
+	struct item *new_item = malloc(sizeof(struct item));
 	struct item *current;
-	struct item *new_item = (struct item *)malloc(sizeof(struct item));
 
-#ifdef DEBUG
-	item_alloc_cnt++;
-#endif
+	if (!new_item) {
+		return NULL;
+	}
+
+	inc_item_cnt();
 	strncpy(new_item->symb_name, name, MAX_NAME_SIZE);
 	new_item->symb_name[MAX_NAME_SIZE - 1] = '\0';
 	new_item->addr = addr;
@@ -47,6 +61,7 @@ struct item *add_item(struct item **list, const char *name, char stype, uint64_t
 		current = *list;
 		while (current->next)
 			current = current->next;
+
 		current->next = new_item;
 	}
 	return new_item;
@@ -75,20 +90,23 @@ void sort_list(struct item **list, int sort_by)
 			      ((sort_by == BY_ADDRESS && current->addr >= temp->next->addr) ||
 			      (sort_by == BY_NAME &&
 			      strcmp(current->symb_name, temp->next->symb_name) >= 0))) {
+
 				temp = temp->next;
 				}
+
 			current->next = temp->next;
 			temp->next = current;
 		}
 		current = next_item;
 	}
+
 	*list = sorted;
 }
 
 struct item *merge(struct item *left, struct item *right, int sort_by)
 {
-	struct item *result = NULL;
 	struct item *current = NULL;
+	struct item *result = NULL;
 
 	if (!left)
 		return right;
@@ -153,10 +171,10 @@ struct item *merge(struct item *left, struct item *right, int sort_by)
 
 struct item *merge_sort(struct item *head, int sort_by)
 {
+	struct item *right;
 	struct item *slow;
 	struct item *fast;
 	struct item *left;
-	struct item *right;
 
 	if (!head || !head->next)
 		return head;
@@ -191,15 +209,16 @@ int insert_after(struct item *list, const uint64_t search_addr,
 		 const char *name, uint64_t addr, char stype)
 {
 	struct item *new_item;
+	struct item *current;
 	int ret = 0;
-	struct item *current = (list_index[name[0] - 32]) ? list_index[name[0] - 32] : list;
 
+	current = (list_index[name[0] - 32]) ? list_index[name[0] - 32] : list;
 	while (current) {
 		if (current->addr == search_addr) {
-#ifdef DEBUG
-			item_alloc_cnt++;
-#endif
-			new_item = (struct item *)malloc(sizeof(struct item));
+			inc_item_cnt();
+			new_item = malloc(sizeof(struct item));
+			if (!new_item)
+				return ret;
 			strncpy(new_item->symb_name, name, MAX_NAME_SIZE);
 			new_item->symb_name[MAX_NAME_SIZE - 1] = '\0';
 			new_item->addr = addr;
@@ -211,7 +230,6 @@ int insert_after(struct item *list, const uint64_t search_addr,
 		}
 		current = current->next;
 	}
-	assert(ret != 0);
 	return ret;
 }
 
@@ -223,9 +241,7 @@ void free_items(struct item **head)
 		app = item_iterator;
 		item_iterator = item_iterator->next;
 		free(app);
-#ifdef DEBUG
-		item_alloc_cnt--;
-#endif
+		dec_item_cnt();
 	}
 	*head = NULL;
 }

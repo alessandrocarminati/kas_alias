@@ -48,12 +48,12 @@ This patch modifies the table as follows:
 
 ```
 ffffffff815501a0 t __pfx_device_show
-ffffffff815501a0 t __pfx_device_show@7790
+ffffffff815501a0 t __pfx_device_show__7790
 ffffffff815d71b0 t __pfx_device_show
-ffffffff815d71b0 t __pfx_device_show@7791
+ffffffff815d71b0 t __pfx_device_show__7791
 ```
 In this case, it is possible to probe `__pfx_device_show` at 
-`0xffffffff815d71b0` by using `__pfx_device_show@7791`.
+`0xffffffff815d71b0` by using `__pfx_device_show__7791`.
 
 ## Test log
 
@@ -62,17 +62,17 @@ In this case, it is possible to probe `__pfx_device_show` at
 [   16.469334] mount (52) used greatest stack depth: 14304 bytes left
 ~ # /bin/busybox cat /proc/kallsyms | /bin/busybox grep __pfx_device_show
 ffffffffb2b501a0 t __pfx_device_show
-ffffffffb2b501a0 t __pfx_device_show@7790
+ffffffffb2b501a0 t __pfx_device_show__7790
 ffffffffb2bd71b0 t __pfx_device_show
-ffffffffb2bd71b0 t __pfx_device_show@7791
+ffffffffb2bd71b0 t __pfx_device_show__7791
 ffffffffb2e481f0 T __pfx_device_show_ulong
 ffffffffb2e48230 T __pfx_device_show_int
 ffffffffb2e48260 T __pfx_device_show_bool
 ~ # mount -t sysfs none /sys
 ~ # mount -t tracefs none /sys/kernel/tracing/
-~ # /bin/busybox echo "p:kprobes/evnt1 __pfx_device_show@7791" >/sys/kernel/tracing/kprobe_events  
+~ # /bin/busybox echo "p:kprobes/evnt1 __pfx_device_show__7791" >/sys/kernel/tracing/kprobe_events  
 ~ # /bin/busybox cat /sys/kernel/tracing/kprobe_events
-p:kprobes/evnt1 __pfx_device_show@7791
+p:kprobes/evnt1 __pfx_device_show__7791
 ~ # 
 ```
 
