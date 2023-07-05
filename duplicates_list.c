@@ -8,27 +8,6 @@
 #include "item_list.h"
 #include "duplicates_list.h"
 
-#ifdef DEBUG
-int duplicates_alloc_cnt;
-
-static inline void inc_duplicates_cnt(void)
-{
-	duplicates_alloc_cnt++;
-}
-
-static inline void dec_duplicates_cnt(void)
-{
-	duplicates_alloc_cnt--;
-}
-
-#else
-
-static inline void inc_duplicates_cnt(void) {};
-static inline void dec_duplicates_cnt(void) {};
-
-#endif
-
-
 struct duplicate_item *find_duplicates(struct item *list)
 {
 	struct duplicate_item *current_duplicate = NULL;
@@ -42,10 +21,10 @@ struct duplicate_item *find_duplicates(struct item *list)
 		if ((prev_item && (strcmp(current_item->symb_name, prev_item->symb_name) == 0)) ||
 		    prev_was_duplicate) {
 			if (!duplicates) {
-				inc_duplicates_cnt();
 				duplicates = malloc(sizeof(struct duplicate_item));
 				if (!duplicates)
 					return NULL;
+
 				duplicates->original_item = prev_item;
 				duplicates->next = NULL;
 				current_duplicate = duplicates;
@@ -55,7 +34,6 @@ struct duplicate_item *find_duplicates(struct item *list)
 				else
 					prev_was_duplicate = true;
 			} else {
-				inc_duplicates_cnt();
 				new_duplicate = malloc(sizeof(struct duplicate_item));
 				if (!new_duplicate) {
 					free_duplicates(&duplicates);
@@ -90,7 +68,6 @@ void free_duplicates(struct duplicate_item **duplicates)
 		app = duplicates_iterator;
 		duplicates_iterator = duplicates_iterator->next;
 		free(app);
-		dec_duplicates_cnt();
 	}
 
 	*duplicates = NULL;

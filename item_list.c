@@ -7,27 +7,12 @@
 #include <assert.h>
 #include "item_list.h"
 
+#define CHECK_ORDER_BY_ADDRESS(sort_by, current, temp, op) \
+	((sort_by) == BY_ADDRESS && (current)->addr op (temp)->addr)
+#define CHECK_ORDER_BY_NAME(sort_by, current, temp, op) \
+	((sort_by) == BY_NAME && strcmp((current)->symb_name, (temp)->symb_name) op 0)
+
 struct item *list_index[96] = {0};
-#ifdef DEBUG
-int item_alloc_cnt;
-
-static inline void inc_item_cnt(void)
-{
-	item_alloc_cnt++;
-}
-
-static inline void dec_item_cnt(void)
-{
-	item_alloc_cnt--;
-}
-
-#else
-
-static inline void inc_item_cnt(void) {};
-static inline void dec_item_cnt(void) {};
-
-#endif
-
 
 void build_index(struct item *list)
 {
@@ -38,21 +23,22 @@ void build_index(struct item *list)
 		if (current->symb_name[0] != current_first_letter) {
 			current_first_letter = current->symb_name[0];
 			list_index[current_first_letter - 32] = current;
-			}
-		current = current->next;
 		}
+		current = current->next;
+	}
 
 }
 
 struct item *add_item(struct item **list, const char *name, char stype, uint64_t addr)
 {
-	struct item *new_item = malloc(sizeof(struct item));
+	struct item *new_item;
 	struct item *current;
 
+
+	new_item = malloc(sizeof(struct item));
 	if (!new_item)
 		return NULL;
 
-	inc_item_cnt();
 	strncpy(new_item->symb_name, name, MAX_NAME_SIZE);
 	new_item->symb_name[MAX_NAME_SIZE - 1] = '\0';
 	new_item->addr = addr;
@@ -84,19 +70,16 @@ void sort_list(struct item **list, int sort_by)
 	while (current) {
 		next_item = current->next;
 		if (!sorted ||
-		    (sort_by == BY_ADDRESS && current->addr < sorted->addr) ||
-		    (sort_by == BY_NAME && strcmp(current->symb_name, sorted->symb_name) < 0)) {
+		    (CHECK_ORDER_BY_ADDRESS(sort_by, current, sorted, <) ||
+		     CHECK_ORDER_BY_NAME(sort_by, current, sorted, >=))) {
 			current->next = sorted;
 			sorted = current;
 		} else {
 			temp = sorted;
 			while (temp->next &&
-			      ((sort_by == BY_ADDRESS && current->addr >= temp->next->addr) ||
-			      (sort_by == BY_NAME &&
-			      strcmp(current->symb_name, temp->next->symb_name) >= 0))) {
-
+			      (CHECK_ORDER_BY_ADDRESS(sort_by, current, temp->next, >=) ||
+			       CHECK_ORDER_BY_NAME(sort_by, current, temp->next, >=)))
 				temp = temp->next;
-				}
 
 			current->next = temp->next;
 			temp->next = current;
@@ -219,7 +202,6 @@ int insert_after(struct item *list, const uint64_t search_addr,
 	current = (list_index[name[0] - 32]) ? list_index[name[0] - 32] : list;
 	while (current) {
 		if (current->addr == search_addr) {
-			inc_item_cnt();
 			new_item = malloc(sizeof(struct item));
 			if (!new_item)
 				return ret;
@@ -245,7 +227,6 @@ void free_items(struct item **head)
 		app = item_iterator;
 		item_iterator = item_iterator->next;
 		free(app);
-		dec_item_cnt();
 	}
 	*head = NULL;
 }

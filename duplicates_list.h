@@ -2,7 +2,6 @@
 #ifndef DUPLICATES_LIST_H
 #define DUPLICATES_LIST_H
 
-#include "debug.h"
 #include "item_list.h"
 
 struct duplicate_item {

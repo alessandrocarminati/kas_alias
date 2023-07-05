@@ -6,11 +6,21 @@
 #include <stdbool.h>
 #include <stdarg.h>
 
-#include "debug.h"
 #include "item_list.h"
 #include "duplicates_list.h"
 
 int suffix_serial;
+
+static inline void verbose_msg(bool verbose, const char *fmt, ...)
+{
+	va_list args;
+
+	va_start(args, fmt);
+	if (verbose)
+		printf(fmt, args);
+
+	va_end(args);
+}
 
 static void create_suffix(const char *name, char *output_suffix)
 {
@@ -20,9 +30,9 @@ static void create_suffix(const char *name, char *output_suffix)
 int main(int argc, char *argv[])
 {
 	char t, sym_name[MAX_NAME_SIZE], new_name[MAX_NAME_SIZE + 15];
-	PRINT_STATS_DPL struct duplicate_item *duplicate;
 	struct duplicate_item  *duplicate_iterator;
-	PRINT_STATS_ITM struct item *head = {NULL};
+	struct duplicate_item *duplicate;
+	struct item *head = {NULL};
 	bool need_2_process = true;
 	struct item *last = {NULL};
 	struct item  *current;

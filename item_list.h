@@ -3,8 +3,6 @@
 #define ITEM_LIST_H
 #include <stdint.h>
 
-#include "debug.h"
-
 #define MAX_NAME_SIZE 256
 #define BY_ADDRESS 1
 #define BY_NAME 2
