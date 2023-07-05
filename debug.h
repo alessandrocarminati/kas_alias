@@ -8,8 +8,8 @@
 #include "item_list.h"
 #include "duplicates_list.h"
 
-#define DUPLICATES_CNT 500000
-#define ITEM_CNT 500000
+#define DUPLICATES_CNT 50
+#define ITEM_CNT 50
 
 #define PRINT_STATS_ITM __attribute__ ((cleanup(print_stats_itm)))
 #define PRINT_STATS_DPL __attribute__ ((cleanup(print_stats_dpl)))
