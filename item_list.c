@@ -10,17 +10,22 @@
 struct item *list_index[96] = {0};
 #ifdef DEBUG
 int item_alloc_cnt;
+
 static inline void inc_item_cnt(void)
 {
 	item_alloc_cnt++;
 }
+
 static inline void dec_item_cnt(void)
 {
 	item_alloc_cnt--;
 }
+
 #else
+
 static inline void inc_item_cnt(void) {};
 static inline void dec_item_cnt(void) {};
+
 #endif
 
 
@@ -44,9 +49,8 @@ struct item *add_item(struct item **list, const char *name, char stype, uint64_t
 	struct item *new_item = malloc(sizeof(struct item));
 	struct item *current;
 
-	if (!new_item) {
+	if (!new_item)
 		return NULL;
-	}
 
 	inc_item_cnt();
 	strncpy(new_item->symb_name, name, MAX_NAME_SIZE);

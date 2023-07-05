@@ -14,7 +14,7 @@ int suffix_serial;
 
 static void create_suffix(const char *name, char *output_suffix)
 {
-	sprintf(output_suffix, "%s__%d", name, suffix_serial++);
+	sprintf(output_suffix, "%s__alias__%d", name, suffix_serial++);
 }
 
 int main(int argc, char *argv[])
@@ -47,7 +47,7 @@ int main(int argc, char *argv[])
 	}
 
 	while (fscanf(fp, "%lx %c %99s\n", &address, &t, sym_name) == 3) {
-		if (strstr(sym_name, "@1") != NULL) {
+		if (strstr(sym_name, "__alias__1") != NULL) {
 			if (verbose_mode && need_2_process)
 				printf("Already processed\n");
 			need_2_process = false;

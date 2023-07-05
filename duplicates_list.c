@@ -10,17 +10,22 @@
 
 #ifdef DEBUG
 int duplicates_alloc_cnt;
+
 static inline void inc_duplicates_cnt(void)
 {
 	duplicates_alloc_cnt++;
 }
+
 static inline void dec_duplicates_cnt(void)
 {
 	duplicates_alloc_cnt--;
 }
+
 #else
+
 static inline void inc_duplicates_cnt(void) {};
 static inline void dec_duplicates_cnt(void) {};
+
 #endif
 
 
