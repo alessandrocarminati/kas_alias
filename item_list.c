@@ -26,14 +26,12 @@ void build_index(struct item *list)
 		}
 		current = current->next;
 	}
-
 }
 
 struct item *add_item(struct item **list, const char *name, char stype, uint64_t addr)
 {
 	struct item *new_item;
 	struct item *current;
-
 
 	new_item = malloc(sizeof(struct item));
 	if (!new_item)
@@ -70,8 +68,8 @@ void sort_list(struct item **list, int sort_by)
 	while (current) {
 		next_item = current->next;
 		if (!sorted ||
-		    (CHECK_ORDER_BY_ADDRESS(sort_by, current, sorted, <) ||
-		     CHECK_ORDER_BY_NAME(sort_by, current, sorted, >=))) {
+		   (CHECK_ORDER_BY_ADDRESS(sort_by, current, sorted, <) ||
+		    CHECK_ORDER_BY_NAME(sort_by, current, sorted, >=))) {
 			current->next = sorted;
 			sorted = current;
 		} else {
