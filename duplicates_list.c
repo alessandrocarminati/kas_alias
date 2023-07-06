@@ -28,11 +28,6 @@ struct duplicate_item *find_duplicates(struct item *list)
 				duplicates->original_item = prev_item;
 				duplicates->next = NULL;
 				current_duplicate = duplicates;
-
-				if (prev_was_duplicate)
-					prev_was_duplicate = false;
-				else
-					prev_was_duplicate = true;
 			} else {
 				new_duplicate = malloc(sizeof(struct duplicate_item));
 				if (!new_duplicate) {
@@ -45,7 +40,8 @@ struct duplicate_item *find_duplicates(struct item *list)
 				current_duplicate->next = new_duplicate;
 				current_duplicate = new_duplicate;
 
-				if (prev_was_duplicate)
+				if ((strcmp(current_item->symb_name, prev_item->symb_name) != 0) &&
+				    (prev_was_duplicate))
 					prev_was_duplicate = false;
 				else
 					prev_was_duplicate = true;
