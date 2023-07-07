@@ -1,4 +1,4 @@
-From dc55d8129436312f55527246e04395477da7384a Mon Sep 17 00:00:00 2001
+From fe2d98b060f122258621169e177c442c4b665397 Mon Sep 17 00:00:00 2001
 From: Alessandro Carminati <alessandro.carminati@gmail.com>
 Date: Wed, 5 Jul 2023 09:29:45 +0000
 Subject: [PATCH] Add alias to duplicate symbols for kallsyms
@@ -16,18 +16,17 @@ symbols share the same name, the standard nm output does not differentiate
 between them. This can lead to confusion and difficulty when trying to
 probe the intended symbol.
 
-
-!~ # cat /proc/kallsyms | grep " name_show"
-!ffffffff8c4f76d0 t name_show
-!ffffffff8c9cccb0 t name_show
-!ffffffff8cb0ac20 t name_show
-!ffffffff8cc728c0 t name_show
-!ffffffff8ce0efd0 t name_show
-!ffffffff8ce126c0 t name_show
-!ffffffff8ce1dd20 t name_show
-!ffffffff8ce24e70 t name_show
-!ffffffff8d1104c0 t name_show
-!ffffffff8d1fe480 t name_show
+~ # cat /proc/kallsyms | grep " name_show"
+ffffffff8c4f76d0 t name_show
+ffffffff8c9cccb0 t name_show
+ffffffff8cb0ac20 t name_show
+ffffffff8cc728c0 t name_show
+ffffffff8ce0efd0 t name_show
+ffffffff8ce126c0 t name_show
+ffffffff8ce1dd20 t name_show
+ffffffff8ce24e70 t name_show
+ffffffff8d1104c0 t name_show
+ffffffff8d1fe480 t name_show
 
 **kas_alias** addresses this challenge by extending the symbol names with
 unique suffixes during the kernel build process.
@@ -35,35 +34,35 @@ The newly created aliases for these duplicated symbols are unique names
 that can be fed to the ftracefs interface. By doing so, it enables
 previously unreachable symbols to be probed.
 
-!~ # cat /proc/kallsyms | grep " name_show"
-!ffffffff974f76d0 t name_show
-!ffffffff974f76d0 t name_show__alias__6340
-!ffffffff979cccb0 t name_show
-!ffffffff979cccb0 t name_show__alias__6341
-!ffffffff97b0ac20 t name_show
-!ffffffff97b0ac20 t name_show__alias__6342
-!ffffffff97c728c0 t name_show
-!ffffffff97c728c0 t name_show__alias__6343
-!ffffffff97e0efd0 t name_show
-!ffffffff97e0efd0 t name_show__alias__6344
-!ffffffff97e126c0 t name_show
-!ffffffff97e126c0 t name_show__alias__6345
-!ffffffff97e1dd20 t name_show
-!ffffffff97e1dd20 t name_show__alias__6346
-!ffffffff97e24e70 t name_show
-!ffffffff97e24e70 t name_show__alias__6347
-!ffffffff981104c0 t name_show
-!ffffffff981104c0 t name_show__alias__6348
-!ffffffff981fe480 t name_show
-!ffffffff981fe480 t name_show__alias__6349
-!~ # echo "p:kprobes/evnt1 name_show__alias__6349" \
-!> >/sys/kernel/tracing/kprobe_events
-!~ # cat /sys/kernel/tracing/kprobe_events
-!p:kprobes/evnt1 name_show__alias__6349
+~ # cat /proc/kallsyms | grep " name_show"
+ffffffff974f76d0 t name_show
+ffffffff974f76d0 t name_show__alias__6340
+ffffffff979cccb0 t name_show
+ffffffff979cccb0 t name_show__alias__6341
+ffffffff97b0ac20 t name_show
+ffffffff97b0ac20 t name_show__alias__6342
+ffffffff97c728c0 t name_show
+ffffffff97c728c0 t name_show__alias__6343
+ffffffff97e0efd0 t name_show
+ffffffff97e0efd0 t name_show__alias__6344
+ffffffff97e126c0 t name_show
+ffffffff97e126c0 t name_show__alias__6345
+ffffffff97e1dd20 t name_show
+ffffffff97e1dd20 t name_show__alias__6346
+ffffffff97e24e70 t name_show
+ffffffff97e24e70 t name_show__alias__6347
+ffffffff981104c0 t name_show
+ffffffff981104c0 t name_show__alias__6348
+ffffffff981fe480 t name_show
+ffffffff981fe480 t name_show__alias__6349
+~ # echo "p:kprobes/evnt1 name_show__alias__6349" \
+> >/sys/kernel/tracing/kprobe_events
+~ # cat /sys/kernel/tracing/kprobe_events
+p:kprobes/evnt1 name_show__alias__6349
 
 Signed-off-by: Alessandro Carminati (Red Hat) <alessandro.carminati@gmail.com>
 ---
- init/Kconfig                        |  18 +++
+ init/Kconfig                        |  17 ++
  scripts/Makefile                    |   4 +
  scripts/kas_alias/Makefile          |   4 +
  scripts/kas_alias/duplicates_list.c |  70 +++++++++
@@ -72,7 +71,7 @@ Signed-off-by: Alessandro Carminati (Red Hat) <alessandro.carminati@gmail.com>
  scripts/kas_alias/item_list.h       |  26 ++++
  scripts/kas_alias/kas_alias.c       | 112 ++++++++++++++
  scripts/link-vmlinux.sh             |   6 +-
- 9 files changed, 484 insertions(+), 1 deletion(-)
+ 9 files changed, 483 insertions(+), 1 deletion(-)
  create mode 100644 scripts/kas_alias/Makefile
  create mode 100644 scripts/kas_alias/duplicates_list.c
  create mode 100644 scripts/kas_alias/duplicates_list.h
@@ -81,10 +80,10 @@ Signed-off-by: Alessandro Carminati (Red Hat) <alessandro.carminati@gmail.com>
  create mode 100644 scripts/kas_alias/kas_alias.c
 
 diff --git a/init/Kconfig b/init/Kconfig
-index f7f65af4ee12..1eacf3bc0659 100644
+index f7f65af4ee12..a67b7b1c604b 100644
 --- a/init/Kconfig
 +++ b/init/Kconfig
-@@ -1737,6 +1737,24 @@ config KALLSYMS_BASE_RELATIVE
+@@ -1737,6 +1737,23 @@ config KALLSYMS_BASE_RELATIVE
  	  time constants, and no relocation pass is required at runtime to fix
  	  up the entries based on the runtime load address of the kernel.
  
@@ -92,12 +91,11 @@ index f7f65af4ee12..1eacf3bc0659 100644
 +	bool "Produces alias for duplicated symbols" if EXPERT
 +	depends on KALLSYMS
 +	help
-+	  In the Linux kernel, it is not uncommon for drivers or modules
-+	  related to similar peripherals to have symbols with the exact same
-+	  name.
++	  It is not uncommon for drivers or modules related to similar
++	  peripherals to have symbols with the exact same name.
 +	  While this is not a problem for the kernel's binary itself, it
-+	  becomes an issue when attempting to trace or probe specific functions
-+	  using infrastructure like ftrace or kprobe.
++	  becomes an issue when attempting to trace or probe specific
++	  functions using infrastructure like ftrace or kprobe.
 +
 +	  This option addresses this challenge by extending the symbol names
 +	  with unique suffixes during the kernel build process.
