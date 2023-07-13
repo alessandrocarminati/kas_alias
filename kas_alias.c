@@ -16,7 +16,11 @@
 
 const char *ignore_regex[] = {
 	"^__cfi_[a-zA-Z0-9_\\.]*$", 
-	"^__pfx_[a-zA-Z00-9_\\.]*$" 
+	"^__pfx_[a-zA-Z00-9_\\.]*$", 
+	"^lock_class[a-zA-Z00-9_\\.]*$", 
+	"^__wkey[a-zA-Z00-9_\\.]*$", 
+	"^__mkey[a-zA-Z00-9_\\.]*$", 
+	"^__key[a-zA-Z00-9_\\.]*$"
 };
 int suffix_serial;
 
