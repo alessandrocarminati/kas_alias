@@ -24,12 +24,25 @@
 #define EREGEX 2
 
 const char *ignore_regex[] = {
-	"^__cfi_[a-zA-Z0-9_\\.]*$",
-	"^__pfx_[a-zA-Z00-9_\\.]*$",
-	"^lock_class[a-zA-Z00-9_\\.]*$",
-	"^__wkey[a-zA-Z00-9_\\.]*$",
-	"^__mkey[a-zA-Z00-9_\\.]*$" 
-	"^__key[a-zA-Z00-9_\\.]*$"
+	"^__cfi_.*$",				// __cfi_ preamble
+#ifndef CONFIG_KALLSYMS_ALIAS_DATA_ALL
+	"^_*TRACE_SYSTEM.*$",
+	"^__already_done\\.[0-9]+$",		// Call a function once data
+	"^___tp_str\\.[0-9]+$",
+	"^___done\\.[0-9]+$",
+	"^__print_once\\.[0-9]+$",
+	"^_rs\\.[0-9]+$",
+	"^__compound_literal\\.[0-9]+$",
+	"^___once_key\\.[0-9]+$",
+	"^__func__\\.[0-9]+$",
+	"^__msg\\.[0-9]+$",
+	"^CSWTCH\\.[0-9]+$",
+	"^__flags\\.[0-9]+$",
+	"^__wkey.*$",
+	"^__mkey.*$",
+	"^__key.*$",
+#endif
+	"^__pfx_.*$"				// NOP-padding
 };
 
 int suffix_serial;
