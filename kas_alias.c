@@ -10,20 +10,20 @@
 #include "item_list.h"
 #include "duplicates_list.h"
 
-
 #define SYMB_IS_TEXT(s) ((((s)->stype) == 't') ||  (((s)->stype) == 'T'))
 #define FNOMATCH 0
 #define FMATCH 1
 #define EREGEX 2
 
 const char *ignore_regex[] = {
-	"^__cfi_[a-zA-Z0-9_\\.]*$", 
-	"^__pfx_[a-zA-Z00-9_\\.]*$", 
-	"^lock_class[a-zA-Z00-9_\\.]*$", 
-	"^__wkey[a-zA-Z00-9_\\.]*$", 
-	"^__mkey[a-zA-Z00-9_\\.]*$", 
+	"^__cfi_[a-zA-Z0-9_\\.]*$",
+	"^__pfx_[a-zA-Z00-9_\\.]*$",
+	"^lock_class[a-zA-Z00-9_\\.]*$",
+	"^__wkey[a-zA-Z00-9_\\.]*$",
+	"^__mkey[a-zA-Z00-9_\\.]*$" 
 	"^__key[a-zA-Z00-9_\\.]*$"
 };
+
 int suffix_serial;
 
 static inline void verbose_msg(bool verbose, const char *fmt, ...)
@@ -54,7 +54,6 @@ static int filter_symbols(char *symbol, const char **ignore_list, int regex_no) 
 		res = regexec(&regex, symbol, 0, NULL, 0);
 		switch (res) {
 			case 0:
-//				printf("%s matches %s\n", symbol, ignore_list[i]);
 				return FMATCH;
 			case REG_NOMATCH:
 				break;
@@ -79,8 +78,8 @@ int main(int argc, char *argv[])
 	struct item  *current;
 	int verbose_mode = 0;
 	uint64_t address;
-	int res;
 	FILE *fp;
+	int res;
 
 	if (argc < 2 || argc > 3) {
 		printf("Usage: %s <nmfile> [-verbose]\n", argv[0]);
