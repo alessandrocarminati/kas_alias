@@ -10,6 +10,8 @@
 #include "item_list.h"
 #include "duplicates_list.h"
 
+
+#define SYMB_IS_TEXT(s) ((((s)->stype) == 't') ||  (((s)->stype) == 'T'))
 #define FNOMATCH 0
 #define FMATCH 1
 #define EREGEX 2
@@ -130,7 +132,8 @@ int main(int argc, char *argv[])
 		duplicate_iterator = duplicate;
 		while (duplicate_iterator) {
 			if ((res = filter_symbols(duplicate_iterator->original_item->symb_name,
-			   ignore_regex, sizeof(ignore_regex)/sizeof(ignore_regex[0])) != FMATCH)) {
+			   ignore_regex, sizeof(ignore_regex)/sizeof(ignore_regex[0])) != FMATCH) &&
+			   SYMB_IS_TEXT(duplicate_iterator->original_item)) {
 				if (res < 0)
 					return 1;
 
