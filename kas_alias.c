@@ -5,10 +5,19 @@
 #include <string.h>
 #include <stdbool.h>
 #include <stdarg.h>
+#include <regex.h>
 
 #include "item_list.h"
 #include "duplicates_list.h"
 
+#define FNOMATCH 0
+#define FMATCH 1
+#define EREGEX 2
+
+const char *ignore_regex[] = {
+	"^__cfi_[a-zA-Z0-9_\\.]*$", 
+	"^__pfx_[a-zA-Z00-9_\\.]*$" 
+};
 int suffix_serial;
 
 static inline void verbose_msg(bool verbose, const char *fmt, ...)
@@ -27,6 +36,32 @@ static void create_suffix(const char *name, char *output_suffix)
 	sprintf(output_suffix, "%s__alias__%d", name, suffix_serial++);
 }
 
+static int filter_symbols(char *symbol, const char **ignore_list, int regex_no) {
+	regex_t regex;
+	int res, i;
+
+	for (i=0; i<regex_no; i++) {
+		res = regcomp(&regex, ignore_list[i], REG_EXTENDED);
+		if (res)
+			return -EREGEX;
+
+		res = regexec(&regex, symbol, 0, NULL, 0);
+		switch (res) {
+			case 0:
+//				printf("%s matches %s\n", symbol, ignore_list[i]);
+				return FMATCH;
+			case REG_NOMATCH:
+				break;
+			default:
+				return -EREGEX;
+		}
+
+	}
+
+	regfree(&regex);
+	return FNOMATCH;
+}
+
 int main(int argc, char *argv[])
 {
 	char t, sym_name[MAX_NAME_SIZE], new_name[MAX_NAME_SIZE + 15];
@@ -38,6 +73,7 @@ int main(int argc, char *argv[])
 	struct item  *current;
 	int verbose_mode = 0;
 	uint64_t address;
+	int res;
 	FILE *fp;
 
 	if (argc < 2 || argc > 3) {
@@ -89,11 +125,18 @@ int main(int argc, char *argv[])
 		build_index(head);
 		duplicate_iterator = duplicate;
 		while (duplicate_iterator) {
-			create_suffix(duplicate_iterator->original_item->symb_name, new_name);
-			if (!insert_after(head, duplicate_iterator->original_item->addr, new_name,
-					  duplicate_iterator->original_item->addr,
-					  duplicate_iterator->original_item->stype))
-				return 1;
+			if ((res = filter_symbols(duplicate_iterator->original_item->symb_name,
+			   ignore_regex, sizeof(ignore_regex)/sizeof(ignore_regex[0])) != FMATCH)) {
+				if (res < 0)
+					return 1;
+
+				create_suffix(duplicate_iterator->original_item->symb_name, new_name);
+				if (!insert_after(head, duplicate_iterator->original_item->addr, new_name,
+						  duplicate_iterator->original_item->addr,
+						  duplicate_iterator->original_item->stype))
+					return 1;
+			}
+
 			duplicate_iterator = duplicate_iterator->next;
 		}
 
