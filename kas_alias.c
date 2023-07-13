@@ -11,6 +11,14 @@
 #include "duplicates_list.h"
 
 #define SYMB_IS_TEXT(s) ((((s)->stype) == 't') ||  (((s)->stype) == 'T'))
+#define SYMB_IS_DATA(s) ((((s)->stype) == 'b') ||  (((s)->stype) == 'B') || \
+			 (((s)->stype) == 'd') ||  (((s)->stype) == 'D') || \
+			 (((s)->stype) == 'r') ||  (((s)->stype) == 'R'))
+#ifdef CONFIG_KALLSYMS_ALIAS_DATA
+#define SYMB_NEEDS_ALIAS(s) (SYMB_IS_TEXT(s) || SYMB_IS_DATA(s))
+#else
+#define SYMB_NEEDS_ALIAS(s) SYMB_IS_TEXT(s)
+#endif
 #define FNOMATCH 0
 #define FMATCH 1
 #define EREGEX 2
@@ -130,9 +138,10 @@ int main(int argc, char *argv[])
 		build_index(head);
 		duplicate_iterator = duplicate;
 		while (duplicate_iterator) {
-			if ((res = filter_symbols(duplicate_iterator->original_item->symb_name,
-			   ignore_regex, sizeof(ignore_regex)/sizeof(ignore_regex[0])) != FMATCH) &&
-			   SYMB_IS_TEXT(duplicate_iterator->original_item)) {
+			res = filter_symbols(duplicate_iterator->original_item->symb_name,
+					     ignore_regex, sizeof(ignore_regex) /
+					     sizeof(ignore_regex[0]));
+			if ((res != FMATCH) && SYMB_NEEDS_ALIAS(duplicate_iterator->original_item)) {
 				if (res < 0)
 					return 1;
 
