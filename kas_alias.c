@@ -63,23 +63,24 @@ static void create_suffix(const char *name, char *output_suffix)
 	sprintf(output_suffix, "%s__alias__%d", name, suffix_serial++);
 }
 
-static int filter_symbols(char *symbol, const char **ignore_list, int regex_no) {
+static int filter_symbols(char *symbol, const char **ignore_list, int regex_no)
+{
 	regex_t regex;
 	int res, i;
 
-	for (i=0; i<regex_no; i++) {
+	for (i = 0; i < regex_no; i++) {
 		res = regcomp(&regex, ignore_list[i], REG_EXTENDED);
 		if (res)
 			return -EREGEX;
 
 		res = regexec(&regex, symbol, 0, NULL, 0);
 		switch (res) {
-			case 0:
-				return FMATCH;
-			case REG_NOMATCH:
-				break;
-			default:
-				return -EREGEX;
+		case 0:
+			return FMATCH;
+		case REG_NOMATCH:
+			break;
+		default:
+			return -EREGEX;
 		}
 
 	}
@@ -154,13 +155,15 @@ int main(int argc, char *argv[])
 			res = filter_symbols(duplicate_iterator->original_item->symb_name,
 					     ignore_regex, sizeof(ignore_regex) /
 					     sizeof(ignore_regex[0]));
-			if ((res != FMATCH) && SYMB_NEEDS_ALIAS(duplicate_iterator->original_item)) {
+			if ((res != FMATCH) &&
+			   SYMB_NEEDS_ALIAS(duplicate_iterator->original_item)) {
 				if (res < 0)
 					return 1;
 
-				create_suffix(duplicate_iterator->original_item->symb_name, new_name);
-				if (!insert_after(head, duplicate_iterator->original_item->addr, new_name,
-						  duplicate_iterator->original_item->addr,
+				create_suffix(duplicate_iterator->original_item->symb_name,
+					      new_name);
+				if (!insert_after(head, duplicate_iterator->original_item->addr,
+						  new_name, duplicate_iterator->original_item->addr,
 						  duplicate_iterator->original_item->stype))
 					return 1;
 			}
