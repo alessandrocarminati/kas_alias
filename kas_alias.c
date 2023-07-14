@@ -74,6 +74,7 @@ static int filter_symbols(char *symbol, const char **ignore_list, int regex_no)
 			return -EREGEX;
 
 		res = regexec(&regex, symbol, 0, NULL, 0);
+		regfree(&regex);
 		switch (res) {
 		case 0:
 			return FMATCH;
@@ -85,7 +86,6 @@ static int filter_symbols(char *symbol, const char **ignore_list, int regex_no)
 
 	}
 
-	regfree(&regex);
 	return FNOMATCH;
 }
 

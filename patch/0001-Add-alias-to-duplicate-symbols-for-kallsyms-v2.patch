@@ -1,4 +1,4 @@
-From ef3af77503f1d88db1ebd7acfc3123ed00123942 Mon Sep 17 00:00:00 2001
+From d3a6f46ffda803c846badc9aadb7d8c1c5998293 Mon Sep 17 00:00:00 2001
 From: Alessandro Carminati <alessandro.carminati@gmail.com>
 Date: Wed, 5 Jul 2023 09:29:45 +0000
 Subject: [PATCH v2] scripts/link-vmlinux.sh: Add alias to duplicate symbols for
@@ -528,7 +528,7 @@ index 000000000000..b4891cb088ee
 +#endif
 diff --git a/scripts/kas_alias/kas_alias.c b/scripts/kas_alias/kas_alias.c
 new file mode 100644
-index 000000000000..43ea181f6a09
+index 000000000000..eb873b368023
 --- /dev/null
 +++ b/scripts/kas_alias/kas_alias.c
 @@ -0,0 +1,186 @@
@@ -608,6 +608,7 @@ index 000000000000..43ea181f6a09
 +			return -EREGEX;
 +
 +		res = regexec(&regex, symbol, 0, NULL, 0);
++		regfree(&regex);
 +		switch (res) {
 +		case 0:
 +			return FMATCH;
@@ -619,7 +620,6 @@ index 000000000000..43ea181f6a09
 +
 +	}
 +
-+	regfree(&regex);
 +	return FNOMATCH;
 +}
 +
