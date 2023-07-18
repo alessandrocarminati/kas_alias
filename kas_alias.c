@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <unistd.h>
 #include <string.h>
 #include <stdbool.h>
 #include <stdarg.h>
@@ -9,6 +10,7 @@
 
 #include "item_list.h"
 #include "duplicates_list.h"
+#include "a2l.h"
 
 #define SYMB_IS_TEXT(s) ((((s)->stype) == 't') ||  (((s)->stype) == 'T'))
 #define SYMB_IS_DATA(s) ((((s)->stype) == 'b') ||  (((s)->stype) == 'B') || \
@@ -63,6 +65,31 @@ static void create_suffix(const char *name, char *output_suffix)
 	sprintf(output_suffix, "%s__alias__%d", name, suffix_serial++);
 }
 
+static void create_file_suffix(const char *name, uint64_t address, char *output_suffix, char *cwd)
+{
+	const char *f_path;
+	char *buf;
+	int i = 0;
+
+	buf = addr2line_get_lines(address);
+	f_path = remove_subdir(cwd, buf);
+	if ( f_path != NULL) {
+		sprintf(output_suffix, "%s@%s", name, f_path);
+		while (*(output_suffix+i) != '\0'){
+			switch (*(output_suffix+i)) {
+			case '/':
+			case ':':
+			case '.':
+				*(output_suffix+i)='_';
+				break;
+			default:
+			}
+		i++;
+		}
+	} else
+		create_suffix(name, output_suffix);
+}
+
 static int filter_symbols(char *symbol, const char **ignore_list, int regex_no)
 {
 	regex_t regex;
@@ -113,6 +140,10 @@ int main(int argc, char *argv[])
 
 	verbose_msg(verbose_mode, "Scanning nm data(%s)\n", argv[1]);
 
+	if (!addr2line_init(get_addr2line(A2L_DEFAULT), get_vmlinux(A2L_DEFAULT))) {
+		return 1;
+	}
+
 	fp = fopen(argv[1], "r");
 	if (!fp) {
 		printf("Can't open input file.\n");
@@ -160,8 +191,9 @@ int main(int argc, char *argv[])
 				if (res < 0)
 					return 1;
 
-				create_suffix(duplicate_iterator->original_item->symb_name,
-					      new_name);
+				create_file_suffix(duplicate_iterator->original_item->symb_name,
+					      duplicate_iterator->original_item->addr, new_name,
+					      vmlinux_path);
 				if (!insert_after(head, duplicate_iterator->original_item->addr,
 						  new_name, duplicate_iterator->original_item->addr,
 						  duplicate_iterator->original_item->stype))
