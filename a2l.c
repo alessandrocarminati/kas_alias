@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,57 +16,63 @@ int a2l_in[2];
 int a2l_out[2];
 char line[MAX_BUF];
 char vmlinux_path[MAX_BUF];
+char addr2line_cmd[MAX_CMD_LEN];
 
-static char *normalizePath(const char *inputPath, char *outputPath) {
-	char *prevToken = NULL;
+static char *normalize_path(const char *input_path, char *output_path)
+{
+	char *prev_token = NULL;
 	char *delimiter = "/";
 	char inbuf[MAX_BUF];
 	char *token;
+	char *pos;
 
 	memset(inbuf, 0, MAX_BUF);
-	*outputPath = '\0';
-	strncpy(inbuf, inputPath, MAX_BUF);
-	if (inputPath == NULL || outputPath == NULL || strlen(inputPath) == 0) {
+	*output_path = '\0';
+	strncpy(inbuf, input_path, MAX_BUF);
+	if (!input_path || !output_path || strlen(input_path) == 0)
 		return NULL;
-	}
 
 	token = strtok(inbuf, delimiter);
-	while (token != NULL) {
-		if (strcmp(token, "..") == 0 && prevToken != NULL) {
-			char* pos = strrchr(outputPath, '/');
-			if (pos != NULL) {
+	while (!token) {
+		if (strcmp(token, "..") == 0 && prev_token) {
+			pos = strrchr(output_path, '/');
+			if (pos)
 				*pos = '\0';
-			}
+
 		} else if (strcmp(token, ".") != 0) {
-			strcat(outputPath, "/");
-			strcat(outputPath, token);
+			strcat(output_path, "/");
+			strcat(output_path, token);
 		}
 
-		prevToken = token;
+		prev_token = token;
 		token = strtok(NULL, delimiter);
 	}
 
-	return outputPath;
+	return output_path;
 }
 
-static void path_of(const char* fullPath, char* path) {
-	const char* lastSlash = strrchr(fullPath, '/');
+static void path_of(const char *full_path, char *path)
+{
+	const char *last_slash = strrchr(full_path, '/');
+	size_t path_length;
 	char cwd[MAX_BUF];
 
-	if (lastSlash == NULL) {
+	if (!last_slash) {
 		getcwd(cwd, sizeof(cwd));
 		strcpy(path, cwd);
 	} else {
-		size_t pathLength = lastSlash - fullPath;
-		strncpy(path, fullPath, pathLength);
-		path[pathLength] = '\0';
+		path_length = last_slash - full_path;
+		strncpy(path, full_path, path_length);
+		path[path_length] = '\0';
 	}
 }
 
-static bool file_exists(const char* filePath) {
-	FILE* file = fopen(filePath, "r");
+static bool file_exists(const char *file_path)
+{
+	FILE *file;
 
-	if (file != NULL) {
+	file = fopen(file_path, "r");
+	if (file) {
 		fclose(file);
 		return true;
 	}
@@ -102,7 +109,8 @@ int addr2line_init(const char *cmd, const char *vmlinux)
 
 	if (addr2line_pid == 0) {
 		dup2(a2l_in[P_READ], 0);
-		dup2(a2l_out[P_WRITE], 1);
+		dup2
+(a2l_out[P_WRITE], 1);
 		close(a2l_in[P_WRITE]);
 		close(a2l_out[P_READ]);
 
@@ -120,10 +128,12 @@ int addr2line_init(const char *cmd, const char *vmlinux)
 
 const char *remove_subdir(const char *home, const char *f_path)
 {
-	int i=0;
+	int i = 0;
 
-	while (*(home + i) == *(f_path + i)) i++;
-	return strlen(home)!=i?NULL:f_path + i;
+	while (*(home + i) == *(f_path + i))
+		i++;
+
+	return (strlen(home) != i) ? NULL : f_path + i;
 }
 
 char *addr2line_get_lines(uint64_t address)
@@ -131,20 +141,19 @@ char *addr2line_get_lines(uint64_t address)
 	FILE *a2l_stdin, *a2l_stdout;
 	char buf[MAX_BUF];
 
-
 	if (addr2line_pid == -1) {
 		printf("addr2line process is not initialized\n");
 		return NULL;
 	}
 
 	a2l_stdin = fdopen(a2l_in[P_WRITE], "w");
-	if (a2l_in == NULL) {
-	    printf("Failed to open pipe a2l_in\n");
-	    return NULL;
+	if (!a2l_stdin) {
+		printf("Failed to open pipe a2l_in\n");
+		return NULL;
 	}
 
 	a2l_stdout = fdopen(a2l_out[P_READ], "r");
-	if (a2l_out == NULL) {
+	if (!a2l_stdout) {
 		printf("Failed to open pipe a2l_out\n");
 		fclose(a2l_stdin);
 		return NULL;
@@ -153,13 +162,13 @@ char *addr2line_get_lines(uint64_t address)
 	fprintf(a2l_stdin, "%08lx\n", address);
 	fflush(a2l_stdin);
 
-	if (fgets(line, sizeof(line), a2l_stdout) == NULL) {
+	if (!fgets(line, sizeof(line), a2l_stdout)) {
 		printf("Failed to read lines from addr2line\n");
 		fclose(a2l_stdin);
 		fclose(a2l_stdout);
 		return NULL;
 	}
-	if (fgets(line, sizeof(line), a2l_stdout) == NULL) {
+	if (!fgets(line, sizeof(line), a2l_stdout)) {
 		printf("Failed to read lines from addr2line\n");
 		fclose(a2l_stdin);
 		fclose(a2l_stdout);
@@ -167,10 +176,10 @@ char *addr2line_get_lines(uint64_t address)
 	}
 
 	line[strcspn(line, "\n")] = '\0';
-	return normalizePath(line, buf);
+	return normalize_path(line, buf);
 }
 
-int addr2line_cleanup()
+int addr2line_cleanup(void)
 {
 	int status;
 
@@ -183,11 +192,53 @@ int addr2line_cleanup()
 	return 1;
 }
 
+char *find_executable(const char *command)
+{
+	char *path_env = getenv("PATH");
+	char executable_path[MAX_CMD_LEN];
+	char *path_copy;
+	char *path;
+
+	if (!path_env)
+		return NULL;
+
+	path_copy = strdup(path_env);
+	if (!path_copy)
+		return NULL;
+
+	path = strtok(path_copy, ":");
+	while (!path) {
+		snprintf(executable_path, sizeof(executable_path), "%s/%s", path, command);
+		if (access(executable_path, X_OK) == 0) {
+			free(path_copy);
+			return strdup(executable_path);
+		}
+
+		path = strtok(NULL, ":");
+	}
+
+	free(path_copy);
+	return NULL;
+}
+
 const char *get_addr2line(int mode)
 {
-	if (mode == A2L_DEFAULT)
-		return ADDR2LINE;
-	return NULL;
+	char *buf = "";
+
+	switch (mode) {
+	case A2L_CROSS:
+		buf = getenv("CROSS_COMPILE");
+		memcpy(addr2line_cmd, buf, strlen(buf));
+	case A2L_DEFAULT:
+		memcpy(addr2line_cmd + strlen(buf), ADDR2LINE, strlen(ADDR2LINE));
+		buf = find_executable(addr2line_cmd);
+		memcpy(addr2line_cmd, buf, strlen(buf));
+		free(buf);
+		return addr2line_cmd;
+	case A2L_LLVM:
+	default:
+		return NULL;
+	}
 }
 
 const char *get_vmlinux(int mode)

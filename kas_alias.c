@@ -73,21 +73,22 @@ static void create_file_suffix(const char *name, uint64_t address, char *output_
 
 	buf = addr2line_get_lines(address);
 	f_path = remove_subdir(cwd, buf);
-	if ( f_path != NULL) {
+	if (!f_path) {
 		sprintf(output_suffix, "%s@%s", name, f_path);
-		while (*(output_suffix+i) != '\0'){
-			switch (*(output_suffix+i)) {
+		while (*(output_suffix + i) != '\0') {
+			switch (*(output_suffix + i)) {
 			case '/':
 			case ':':
 			case '.':
-				*(output_suffix+i)='_';
+				*(output_suffix + i) = '_';
 				break;
 			default:
 			}
 		i++;
 		}
-	} else
+	} else {
 		create_suffix(name, output_suffix);
+	}
 }
 
 static int filter_symbols(char *symbol, const char **ignore_list, int regex_no)
@@ -140,9 +141,8 @@ int main(int argc, char *argv[])
 
 	verbose_msg(verbose_mode, "Scanning nm data(%s)\n", argv[1]);
 
-	if (!addr2line_init(get_addr2line(A2L_DEFAULT), get_vmlinux(A2L_DEFAULT))) {
+	if (!addr2line_init(get_addr2line(A2L_DEFAULT), get_vmlinux(A2L_DEFAULT)))
 		return 1;
-	}
 
 	fp = fopen(argv[1], "r");
 	if (!fp) {
@@ -192,8 +192,8 @@ int main(int argc, char *argv[])
 					return 1;
 
 				create_file_suffix(duplicate_iterator->original_item->symb_name,
-					      duplicate_iterator->original_item->addr, new_name,
-					      vmlinux_path);
+						   duplicate_iterator->original_item->addr, new_name,
+						   vmlinux_path);
 				if (!insert_after(head, duplicate_iterator->original_item->addr,
 						  new_name, duplicate_iterator->original_item->addr,
 						  duplicate_iterator->original_item->stype))
