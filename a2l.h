@@ -5,7 +5,7 @@
 
 #define ADDR2LINE "addr2line"
 #define ADDR2LINE_ARGS "-fe"
-#define VMLINUX "vmlinux"
+//#define VMLINUX "vmlinux"
 #define MAX_BUF 4096
 #define MAX_CMD_LEN 256
 #define P_READ 0
@@ -27,6 +27,6 @@ char *addr2line_get_lines(uint64_t address);
 int addr2line_cleanup(void);
 const char *remove_subdir(const char *home, const char *f_path);
 const char *get_addr2line(int mode);
-const char *get_vmlinux(int mode);
+char *get_vmlinux(char *input);
 
 #endif

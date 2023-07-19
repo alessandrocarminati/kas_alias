@@ -140,14 +140,15 @@ int main(int argc, char *argv[])
 
 	verbose_msg(verbose_mode, "Scanning nm data(%s)\n", argv[1]);
 
-	if (!addr2line_init(get_addr2line(A2L_DEFAULT), get_vmlinux(A2L_DEFAULT)))
-		return 1;
-
 	fp = fopen(argv[1], "r");
 	if (!fp) {
 		printf("Can't open input file.\n");
 		return 1;
 	}
+
+//	if (!addr2line_init(get_addr2line(A2L_DEFAULT), get_vmlinux(A2L_DEFAULT)))
+	if (!addr2line_init(get_addr2line(A2L_DEFAULT), get_vmlinux(argv[1])))
+		return 1;
 
 	while (fscanf(fp, "%lx %c %99s\n", &address, &t, sym_name) == 3) {
 		if (strstr(sym_name, "@_")) {

@@ -246,9 +246,23 @@ const char *get_addr2line(int mode)
 	}
 }
 
-const char *get_vmlinux(int mode)
+char *get_vmlinux(char *input)
 {
-	if (mode == A2L_DEFAULT)
-		return  VMLINUX;
-	return NULL;
+	const char *match_string1 = ".syms";
+	const char *match_string2 = ".tmp_vmlinux.kallsyms";
+	char *result = NULL;
+	char *match_pos;
+
+	match_pos = strstr(input, match_string1);
+	if (!match_pos)
+		return NULL;
+
+	match_pos = strstr(input, match_string2);
+	if (!match_pos)
+		return NULL;
+
+	result = strdup(input);
+	match_pos = strstr(result, match_string1);
+	*match_pos = '\0';
+	return result;
 }
