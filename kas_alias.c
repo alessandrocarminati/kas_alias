@@ -73,7 +73,7 @@ static void create_file_suffix(const char *name, uint64_t address, char *output_
 
 	buf = addr2line_get_lines(address);
 	f_path = remove_subdir(cwd, buf);
-	if (!f_path) {
+	if (f_path) {
 		sprintf(output_suffix, "%s@%s", name, f_path);
 		while (*(output_suffix + i) != '\0') {
 			switch (*(output_suffix + i)) {
@@ -111,7 +111,6 @@ static int filter_symbols(char *symbol, const char **ignore_list, int regex_no)
 		default:
 			return -EREGEX;
 		}
-
 	}
 
 	return FNOMATCH;
@@ -151,7 +150,7 @@ int main(int argc, char *argv[])
 	}
 
 	while (fscanf(fp, "%lx %c %99s\n", &address, &t, sym_name) == 3) {
-		if (strstr(sym_name, "__alias__1") != NULL) {
+		if (strstr(sym_name, "@_")) {
 			if (verbose_mode && need_2_process)
 				printf("Already processed\n");
 			need_2_process = false;
@@ -186,14 +185,14 @@ int main(int argc, char *argv[])
 			res = filter_symbols(duplicate_iterator->original_item->symb_name,
 					     ignore_regex, sizeof(ignore_regex) /
 					     sizeof(ignore_regex[0]));
-			if ((res != FMATCH) &&
-			   SYMB_NEEDS_ALIAS(duplicate_iterator->original_item)) {
+			if (res != FMATCH &&
+			    SYMB_NEEDS_ALIAS(duplicate_iterator->original_item)) {
 				if (res < 0)
 					return 1;
 
 				create_file_suffix(duplicate_iterator->original_item->symb_name,
-						   duplicate_iterator->original_item->addr, new_name,
-						   vmlinux_path);
+						   duplicate_iterator->original_item->addr,
+						   new_name, vmlinux_path);
 				if (!insert_after(head, duplicate_iterator->original_item->addr,
 						  new_name, duplicate_iterator->original_item->addr,
 						  duplicate_iterator->original_item->stype))
@@ -213,6 +212,6 @@ int main(int argc, char *argv[])
 
 	free_items(&head);
 	free_duplicates(&duplicate);
-
+	addr2line_cleanup();
 	return 0;
 }

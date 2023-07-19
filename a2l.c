@@ -17,6 +17,7 @@ int a2l_out[2];
 char line[MAX_BUF];
 char vmlinux_path[MAX_BUF];
 char addr2line_cmd[MAX_CMD_LEN];
+FILE *a2l_stdin, *a2l_stdout;
 
 static char *normalize_path(const char *input_path, char *output_path)
 {
@@ -33,7 +34,7 @@ static char *normalize_path(const char *input_path, char *output_path)
 		return NULL;
 
 	token = strtok(inbuf, delimiter);
-	while (!token) {
+	while (token) {
 		if (strcmp(token, "..") == 0 && prev_token) {
 			pos = strrchr(output_path, '/');
 			if (pos)
@@ -58,8 +59,10 @@ static void path_of(const char *full_path, char *path)
 	char cwd[MAX_BUF];
 
 	if (!last_slash) {
-		getcwd(cwd, sizeof(cwd));
-		strcpy(path, cwd);
+		if (getcwd(cwd, sizeof(cwd)))
+			strcpy(path, cwd);
+		else
+			strcpy(path, ".");
 	} else {
 		path_length = last_slash - full_path;
 		strncpy(path, full_path, path_length);
@@ -109,8 +112,7 @@ int addr2line_init(const char *cmd, const char *vmlinux)
 
 	if (addr2line_pid == 0) {
 		dup2(a2l_in[P_READ], 0);
-		dup2
-(a2l_out[P_WRITE], 1);
+		dup2(a2l_out[P_WRITE], 1);
 		close(a2l_in[P_WRITE]);
 		close(a2l_out[P_READ]);
 
@@ -121,6 +123,19 @@ int addr2line_init(const char *cmd, const char *vmlinux)
 	} else {
 		close(a2l_in[P_READ]);
 		close(a2l_out[P_WRITE]);
+	}
+
+	a2l_stdin = fdopen(a2l_in[P_WRITE], "w");
+	if (!a2l_stdin) {
+		printf("Failed to open pipe a2l_in\n");
+		return 0;
+	}
+
+	a2l_stdout = fdopen(a2l_out[P_READ], "r");
+	if (!a2l_stdout) {
+		printf("Failed to open pipe a2l_out\n");
+		fclose(a2l_stdin);
+		return 0;
 	}
 
 	return 1;
@@ -138,45 +153,24 @@ const char *remove_subdir(const char *home, const char *f_path)
 
 char *addr2line_get_lines(uint64_t address)
 {
-	FILE *a2l_stdin, *a2l_stdout;
 	char buf[MAX_BUF];
-
-	if (addr2line_pid == -1) {
-		printf("addr2line process is not initialized\n");
-		return NULL;
-	}
-
-	a2l_stdin = fdopen(a2l_in[P_WRITE], "w");
-	if (!a2l_stdin) {
-		printf("Failed to open pipe a2l_in\n");
-		return NULL;
-	}
-
-	a2l_stdout = fdopen(a2l_out[P_READ], "r");
-	if (!a2l_stdout) {
-		printf("Failed to open pipe a2l_out\n");
-		fclose(a2l_stdin);
-		return NULL;
-	}
 
 	fprintf(a2l_stdin, "%08lx\n", address);
 	fflush(a2l_stdin);
 
 	if (!fgets(line, sizeof(line), a2l_stdout)) {
 		printf("Failed to read lines from addr2line\n");
-		fclose(a2l_stdin);
-		fclose(a2l_stdout);
 		return NULL;
 	}
+
 	if (!fgets(line, sizeof(line), a2l_stdout)) {
 		printf("Failed to read lines from addr2line\n");
-		fclose(a2l_stdin);
-		fclose(a2l_stdout);
 		return NULL;
 	}
 
 	line[strcspn(line, "\n")] = '\0';
-	return normalize_path(line, buf);
+	strncpy(buf, line, MAX_BUF);
+	return normalize_path(buf, line);
 }
 
 int addr2line_cleanup(void)
@@ -186,18 +180,21 @@ int addr2line_cleanup(void)
 	if (addr2line_pid != -1) {
 		kill(addr2line_pid, SIGKILL);
 		waitpid(addr2line_pid, &status, 0);
+		fclose(a2l_stdin);
+		fclose(a2l_stdout);
 		addr2line_pid = -1;
 	}
 
 	return 1;
 }
 
-char *find_executable(const char *command)
+static char *find_executable(const char *command)
 {
 	char *path_env = getenv("PATH");
-	char executable_path[MAX_CMD_LEN];
+	char *executable_path;
 	char *path_copy;
 	char *path;
+	int n;
 
 	if (!path_env)
 		return NULL;
@@ -207,17 +204,23 @@ char *find_executable(const char *command)
 		return NULL;
 
 	path = strtok(path_copy, ":");
-	while (!path) {
-		snprintf(executable_path, sizeof(executable_path), "%s/%s", path, command);
+	while (path) {
+		n = snprintf(0, 0, "%s/%s", path, command);
+		executable_path = (char *)malloc(n + 1);
+		snprintf(executable_path, n + 1, "%s/%s", path, command);
 		if (access(executable_path, X_OK) == 0) {
 			free(path_copy);
-			return strdup(executable_path);
+			return executable_path;
 		}
 
-		path = strtok(NULL, ":");
+	path = strtok(NULL, ":");
+	free(executable_path);
+	executable_path = NULL;
 	}
 
 	free(path_copy);
+	if (executable_path)
+		free(executable_path);
 	return NULL;
 }
 
@@ -232,8 +235,10 @@ const char *get_addr2line(int mode)
 	case A2L_DEFAULT:
 		memcpy(addr2line_cmd + strlen(buf), ADDR2LINE, strlen(ADDR2LINE));
 		buf = find_executable(addr2line_cmd);
-		memcpy(addr2line_cmd, buf, strlen(buf));
-		free(buf);
+		if (buf) {
+			memcpy(addr2line_cmd, buf, strlen(buf));
+			free(buf);
+		}
 		return addr2line_cmd;
 	case A2L_LLVM:
 	default:

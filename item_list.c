@@ -68,14 +68,14 @@ void sort_list(struct item **list, int sort_by)
 	while (current) {
 		next_item = current->next;
 		if (!sorted ||
-		   (CHECK_ORDER_BY_ADDRESS(sort_by, current, sorted, <) ||
+		    (CHECK_ORDER_BY_ADDRESS(sort_by, current, sorted, <) ||
 		    CHECK_ORDER_BY_NAME(sort_by, current, sorted, >=))) {
 			current->next = sorted;
 			sorted = current;
 		} else {
 			temp = sorted;
 			while (temp->next &&
-			      (CHECK_ORDER_BY_ADDRESS(sort_by, current, temp->next, >=) ||
+			       (CHECK_ORDER_BY_ADDRESS(sort_by, current, temp->next, >=) ||
 			       CHECK_ORDER_BY_NAME(sort_by, current, temp->next, >=)))
 				temp = temp->next;
 
