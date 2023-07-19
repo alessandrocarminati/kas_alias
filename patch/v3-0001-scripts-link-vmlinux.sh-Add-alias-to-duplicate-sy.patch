@@ -1,4 +1,4 @@
-From 6dbeacaf4350724bdfdc2c3ad01f869f78a827e0 Mon Sep 17 00:00:00 2001
+From 32ec42417400eb87771166ae9f62e7a6ca36e745 Mon Sep 17 00:00:00 2001
 From: Alessandro Carminati <alessandro.carminati@gmail.com>
 Date: Wed, 5 Jul 2023 09:29:45 +0000
 Subject: [PATCH v3] scripts/link-vmlinux.sh: Add alias to duplicate symbols
@@ -82,6 +82,15 @@ Changes from v2:
   list, the old duplicated name is preserved, and the livepatch way of dealing
   with duplicates is maintained.
 
+sample from new v3
+
+ ~# cat /proc/kallsyms | grep gic_mask_irq
+ ffffd0b03c04dae4 t gic_mask_irq
+ ffffd0b03c04dae4 t gic_mask_irq@_drivers_irqchip_irq-gic_c_167
+ ffffd0b03c050960 t gic_mask_irq
+ ffffd0b03c050960 t gic_mask_irq@_drivers_irqchip_irq-gic-v3_c_404
+ ~#
+
 https://lore.kernel.org/all/20230714150326.1152359-1-alessandro.carminati@gmail.com/
 
 Signed-off-by: Alessandro Carminati (Red Hat) <alessandro.carminati@gmail.com>
@@ -89,15 +98,15 @@ Signed-off-by: Alessandro Carminati (Red Hat) <alessandro.carminati@gmail.com>
  init/Kconfig                        |  36 ++++
  scripts/Makefile                    |   4 +
  scripts/kas_alias/Makefile          |   4 +
- scripts/kas_alias/a2l.c             | 254 ++++++++++++++++++++++++++++
+ scripts/kas_alias/a2l.c             | 268 ++++++++++++++++++++++++++++
  scripts/kas_alias/a2l.h             |  32 ++++
  scripts/kas_alias/duplicates_list.c |  70 ++++++++
  scripts/kas_alias/duplicates_list.h |  15 ++
- scripts/kas_alias/item_list.c       | 230 +++++++++++++++++++++++++
+ scripts/kas_alias/item_list.c       | 230 ++++++++++++++++++++++++
  scripts/kas_alias/item_list.h       |  26 +++
- scripts/kas_alias/kas_alias.c       | 217 ++++++++++++++++++++++++
- scripts/link-vmlinux.sh             |   6 +-
- 11 files changed, 893 insertions(+), 1 deletion(-)
+ scripts/kas_alias/kas_alias.c       | 217 ++++++++++++++++++++++
+ scripts/link-vmlinux.sh             |  11 +-
+ 11 files changed, 910 insertions(+), 3 deletions(-)
  create mode 100644 scripts/kas_alias/Makefile
  create mode 100644 scripts/kas_alias/a2l.c
  create mode 100644 scripts/kas_alias/a2l.h
@@ -178,10 +187,10 @@ index 000000000000..e1fde69232b4
 +kas_alias-objs        := duplicates_list.o item_list.o kas_alias.o a2l.o
 diff --git a/scripts/kas_alias/a2l.c b/scripts/kas_alias/a2l.c
 new file mode 100644
-index 000000000000..023ace198845
+index 000000000000..a9692ac30180
 --- /dev/null
 +++ b/scripts/kas_alias/a2l.c
-@@ -0,0 +1,254 @@
+@@ -0,0 +1,268 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +#include <stdio.h>
 +#include <stdlib.h>
@@ -430,15 +439,29 @@ index 000000000000..023ace198845
 +	}
 +}
 +
-+const char *get_vmlinux(int mode)
++char *get_vmlinux(char *input)
 +{
-+	if (mode == A2L_DEFAULT)
-+		return  VMLINUX;
-+	return NULL;
++	const char *match_string1 = ".syms";
++	const char *match_string2 = ".tmp_vmlinux.kallsyms";
++	char *result = NULL;
++	char *match_pos;
++
++	match_pos = strstr(input, match_string1);
++	if (!match_pos)
++		return NULL;
++
++	match_pos = strstr(input, match_string2);
++	if (!match_pos)
++		return NULL;
++
++	result = strdup(input);
++	match_pos = strstr(result, match_string1);
++	*match_pos = '\0';
++	return result;
 +}
 diff --git a/scripts/kas_alias/a2l.h b/scripts/kas_alias/a2l.h
 new file mode 100644
-index 000000000000..37f222c8eafd
+index 000000000000..ca6419229dde
 --- /dev/null
 +++ b/scripts/kas_alias/a2l.h
 @@ -0,0 +1,32 @@
@@ -449,7 +472,7 @@ index 000000000000..37f222c8eafd
 +
 +#define ADDR2LINE "addr2line"
 +#define ADDR2LINE_ARGS "-fe"
-+#define VMLINUX "vmlinux"
++//#define VMLINUX "vmlinux"
 +#define MAX_BUF 4096
 +#define MAX_CMD_LEN 256
 +#define P_READ 0
@@ -471,7 +494,7 @@ index 000000000000..37f222c8eafd
 +int addr2line_cleanup(void);
 +const char *remove_subdir(const char *home, const char *f_path);
 +const char *get_addr2line(int mode);
-+const char *get_vmlinux(int mode);
++char *get_vmlinux(char *input);
 +
 +#endif
 diff --git a/scripts/kas_alias/duplicates_list.c b/scripts/kas_alias/duplicates_list.c
@@ -841,7 +864,7 @@ index 000000000000..b4891cb088ee
 +#endif
 diff --git a/scripts/kas_alias/kas_alias.c b/scripts/kas_alias/kas_alias.c
 new file mode 100644
-index 000000000000..f9c7afaee43d
+index 000000000000..532aeb39f851
 --- /dev/null
 +++ b/scripts/kas_alias/kas_alias.c
 @@ -0,0 +1,217 @@
@@ -987,14 +1010,14 @@ index 000000000000..f9c7afaee43d
 +
 +	verbose_msg(verbose_mode, "Scanning nm data(%s)\n", argv[1]);
 +
-+	if (!addr2line_init(get_addr2line(A2L_DEFAULT), get_vmlinux(A2L_DEFAULT)))
-+		return 1;
-+
 +	fp = fopen(argv[1], "r");
 +	if (!fp) {
 +		printf("Can't open input file.\n");
 +		return 1;
 +	}
++
++	if (!addr2line_init(get_addr2line(A2L_DEFAULT), get_vmlinux(argv[1])))
++		return 1;
 +
 +	while (fscanf(fp, "%lx %c %99s\n", &address, &t, sym_name) == 3) {
 +		if (strstr(sym_name, "@_")) {
@@ -1063,10 +1086,22 @@ index 000000000000..f9c7afaee43d
 +	return 0;
 +}
 diff --git a/scripts/link-vmlinux.sh b/scripts/link-vmlinux.sh
-index a432b171be82..4e3dea3ac2df 100755
+index a432b171be82..cacf60b597ce 100755
 --- a/scripts/link-vmlinux.sh
 +++ b/scripts/link-vmlinux.sh
-@@ -161,7 +161,11 @@ kallsyms()
+@@ -89,8 +89,9 @@ vmlinux_link()
+ 
+ 	ldflags="${ldflags} ${wl}--script=${objtree}/${KBUILD_LDS}"
+ 
+-	# The kallsyms linking does not need debug symbols included.
+-	if [ "$output" != "${output#.tmp_vmlinux.kallsyms}" ] ; then
++	# The kallsyms linking does not need debug symbols included, unless the KALLSYMS_ALIAS.
++	if [ ! is_enabled CONFIG_KALLSYMS_ALIAS ] && \
++	    [ "$output" != "${output#.tmp_vmlinux.kallsyms}" ] ; then
+ 		ldflags="${ldflags} ${wl}--strip-debug"
+ 	fi
+ 
+@@ -161,7 +162,11 @@ kallsyms()
  	fi
  
  	info KSYMS ${2}
