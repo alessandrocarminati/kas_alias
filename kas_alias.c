@@ -146,7 +146,6 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-//	if (!addr2line_init(get_addr2line(A2L_DEFAULT), get_vmlinux(A2L_DEFAULT)))
 	if (!addr2line_init(get_addr2line(A2L_DEFAULT), get_vmlinux(argv[1])))
 		return 1;
 
