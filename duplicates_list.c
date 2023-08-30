@@ -40,11 +40,9 @@ struct duplicate_item *find_duplicates(struct item *list)
 				current_duplicate->next = new_duplicate;
 				current_duplicate = new_duplicate;
 
-				if ((strcmp(current_item->symb_name, prev_item->symb_name) != 0) &&
-				    (prev_was_duplicate))
-					prev_was_duplicate = false;
-				else
-					prev_was_duplicate = true;
+				prev_was_duplicate =
+				    ! (strcmp(current_item->symb_name, prev_item->symb_name) !=0 &&
+				    prev_was_duplicate);
 			}
 		}
 

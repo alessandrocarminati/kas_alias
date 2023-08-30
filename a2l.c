@@ -23,11 +23,10 @@ static char *normalize_path(const char *input_path, char *output_path)
 {
 	char *prev_token = NULL;
 	char *delimiter = "/";
-	char inbuf[MAX_BUF];
+	char inbuf[MAX_BUF] = {0};
 	char *token;
 	char *pos;
 
-	memset(inbuf, 0, MAX_BUF);
 	*output_path = '\0';
 	strncpy(inbuf, input_path, MAX_BUF);
 	if (!input_path || !output_path || strlen(input_path) == 0)
@@ -145,7 +144,7 @@ const char *remove_subdir(const char *home, const char *f_path)
 {
 	int i = 0;
 
-	while (*(home + i) == *(f_path + i))
+	while (home[i] == f_path[i])
 		i++;
 
 	return (strlen(home) != i) ? NULL : f_path + i;
