@@ -82,7 +82,7 @@ static void create_file_suffix(const char *name, uint64_t address, char *output_
 			case '.':
 				*(output_suffix + i) = '_';
 				break;
-			default:
+			default: ;
 			}
 		i++;
 		}
