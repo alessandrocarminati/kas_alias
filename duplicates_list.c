@@ -41,7 +41,7 @@ struct duplicate_item *find_duplicates(struct item *list)
 				current_duplicate = new_duplicate;
 
 				prev_was_duplicate =
-				    ! (strcmp(current_item->symb_name, prev_item->symb_name) !=0 &&
+				    !(strcmp(current_item->symb_name, prev_item->symb_name) != 0 &&
 				    prev_was_duplicate);
 			}
 		}

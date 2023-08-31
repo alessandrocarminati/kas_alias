@@ -17,7 +17,8 @@
 #define SYMB_IS_DATA(s) ((((s)->stype) == 'b') ||  (((s)->stype) == 'B') || \
 			 (((s)->stype) == 'd') ||  (((s)->stype) == 'D') || \
 			 (((s)->stype) == 'r') ||  (((s)->stype) == 'R'))
-#define NEED2NORMALIZE(p,i) (! isalnum( *(p + i) ) && (*(p + i) != '@') )
+#define NEED2NORMALIZE(str_to_norm, chr_pos)
+	(!isalnum((str_to_norm)[(chr_pos)]) && ((str_to_norm)[(chr_pos)] != '@'))
 #ifdef CONFIG_KALLSYMS_ALIAS_DATA
 #define SYMB_NEEDS_ALIAS(s) (SYMB_IS_TEXT(s) || SYMB_IS_DATA(s))
 #else
@@ -78,7 +79,7 @@ static void create_file_suffix(const char *name, uint64_t address, char *output_
 	if (f_path) {
 		sprintf(output_suffix, "%s@%s", name, f_path);
 		while (*(output_suffix + i) != '\0') {
-			if ( NEED2NORMALIZE(output_suffix, i) )
+			if (NEED2NORMALIZE(output_suffix, i))
 				*(output_suffix + i) = '_';
 			i++;
 			}
