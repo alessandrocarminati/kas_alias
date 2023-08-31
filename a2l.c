@@ -225,14 +225,18 @@ static char *find_executable(const char *command)
 
 const char *get_addr2line(int mode)
 {
+	int buf_len = 0;
 	char *buf = "";
 
 	switch (mode) {
 	case A2L_CROSS:
 		buf = getenv("CROSS_COMPILE");
-		memcpy(addr2line_cmd, buf, strlen(buf));
-	case A2L_DEFAULT:
-		memcpy(addr2line_cmd + strlen(buf), ADDR2LINE, strlen(ADDR2LINE));
+		if (buf) {
+			memcpy(addr2line_cmd, buf, strlen(buf));
+			buf_len = strlen(buf);
+		}
+	case A2L_NATIVE_ONLY:
+		memcpy(addr2line_cmd + buf_len, ADDR2LINE, strlen(ADDR2LINE));
 		buf = find_executable(addr2line_cmd);
 		if (buf) {
 			memcpy(addr2line_cmd, buf, strlen(buf));

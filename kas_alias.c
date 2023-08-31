@@ -146,7 +146,7 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	if (!addr2line_init(get_addr2line(A2L_DEFAULT), get_vmlinux(argv[1])))
+	if (!addr2line_init(get_addr2line(A2L_CROSS), get_vmlinux(argv[1])))
 		return 1;
 
 	while (fscanf(fp, "%lx %c %99s\n", &address, &t, sym_name) == 3) {
