@@ -5,7 +5,6 @@
 
 #define ADDR2LINE "addr2line"
 #define ADDR2LINE_ARGS "-fe"
-//#define VMLINUX "vmlinux"
 #define MAX_BUF 4096
 #define MAX_CMD_LEN 256
 #define P_READ 0

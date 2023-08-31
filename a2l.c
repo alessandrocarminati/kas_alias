@@ -86,7 +86,7 @@ int addr2line_init(const char *cmd, const char *vmlinux)
 	if ((!file_exists(cmd)) || (!file_exists(vmlinux))) {
 		printf("file not found\n");
 		return 0;
-		}
+	}
 
 	path_of(vmlinux, vmlinux_path);
 	if (pipe(a2l_in) == -1) {
