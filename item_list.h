@@ -5,7 +5,9 @@
 #include <stdint.h>
 
 #define MAX_NAME_SIZE 256
-#define HASH_TABLE_SIZE 100
+#define HASH_TABLE_SIZE (1<<14)
+
+extern int hash_collision_max;
 
 struct item {
 	char symb_name[MAX_NAME_SIZE];

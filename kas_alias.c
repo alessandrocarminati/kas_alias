@@ -89,6 +89,7 @@ static void create_file_suffix(const char *name, uint64_t address, char *output_
 	}
 }
 
+#ifdef CONFIG_KALLSYMS_ALIAS_DATA
 static int filter_symbols(char *symbol, const char **ignore_list, int regex_no)
 {
 	regex_t regex;
@@ -113,6 +114,7 @@ static int filter_symbols(char *symbol, const char **ignore_list, int regex_no)
 
 	return FNOMATCH;
 }
+#endif
 
 static void printnm(struct heads *h, char *fn)
 {
@@ -143,8 +145,9 @@ int main(int argc, char *argv[])
 	bool need_2_process = true;
 	uint64_t address;
 	FILE *fp;
+#ifdef CONFIG_KALLSYMS_ALIAS_DATA
 	int res;
-
+#endif
 
 	cfg = parse_command_line(argc, argv);
 	if (!cfg) {
@@ -182,6 +185,7 @@ int main(int argc, char *argv[])
 
 	fclose(fp);
 
+	printf("#################################################### hash_collision_max = %d \n", hash_collision_max);
 //	printnm(h);
 
 //	printf("##################################################################################################################################\n");
@@ -197,6 +201,8 @@ int main(int argc, char *argv[])
 		while (item_iterator) {
 			if (item_counter(h, item_iterator->symb_name) > 1) {
 //				printf("-> %s\n", item_iterator->symb_name);
+
+#ifdef CONFIG_KALLSYMS_ALIAS_DATA
 				res = filter_symbols(item_iterator->symb_name,
 						     ignore_regex,
 						     sizeof(ignore_regex) /
@@ -208,7 +214,9 @@ int main(int argc, char *argv[])
 						cleanup(cfg, h);
 						return 1;
 					}
-
+#else
+				if (SYMB_NEEDS_ALIAS(item_iterator)) {
+#endif
 					create_file_suffix(item_iterator->symb_name,
 							   item_iterator->addr,
 							   new_name, vmlinux_path);

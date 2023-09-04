@@ -5,7 +5,10 @@
 
 #include "item_list.h"
 
+int hash_collision_max = 0;
+
 // Hash function as djb2
+/*
 static int hash_function(char *key)
 {
 	unsigned long hash = 5381;
@@ -16,6 +19,35 @@ static int hash_function(char *key)
 
 	return hash % HASH_TABLE_SIZE;
 }
+*/
+/*
+static int hash_function(const char *key)
+{
+	unsigned long hash = 0;
+	int c;
+
+	while (c = *key++)
+		hash = c + (hash << 6) + (hash << 16) - hash;
+
+	return hash % HASH_TABLE_SIZE;
+}
+*/
+
+
+#define FNV_PRIME_32 16777619
+#define FNV_OFFSET_32 2166136261U
+
+static int hash_function(const char *str) {
+    uint32_t hash = FNV_OFFSET_32;
+    
+    while (*str) {
+        hash ^= (uint32_t)(*str++);
+        hash *= FNV_PRIME_32;
+    }
+    
+    return hash % HASH_TABLE_SIZE;
+}
+
 
 static void cleanup_hash_index(struct hash_index *index)
 {
@@ -36,11 +68,17 @@ static void update_hash_index(struct hash_index *index, char *key)
 {
 	int index_value = hash_function(key);
 	struct hash_node *current = index->table[index_value];
+	int ctr=0;
+
 	while (current != NULL) {
 		if (strcmp(current->key, key) == 0) {
 			current->count++;
+			if (ctr > hash_collision_max) {
+				hash_collision_max = ctr;
+			}
 			return;
 		}
+		ctr++;
 		current = current->next;
 	}
 
@@ -83,6 +121,7 @@ struct heads *init_heads()
 void add_item(struct heads *h, char *key, uint64_t addr, char stype)
 {
 	struct item *new_item = malloc(sizeof(struct item));
+
 	if (new_item == NULL) {
 		perror("Failed to allocate memory for item");
 		exit(EXIT_FAILURE);
