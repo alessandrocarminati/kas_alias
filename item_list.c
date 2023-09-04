@@ -7,45 +7,54 @@
 
 int hash_collision_max = 0;
 
-// Hash function as djb2
-/*
-static int hash_function(char *key)
-{
-	unsigned long hash = 5381;
-	int c;
+#define ROTL32(x, r) ((x << r) | (x >> (32 - r)))
+#define MURMUR3_SEED 0x55aa9966
+static int hash_function(const char *key) {
+	const uint8_t *data = (const uint8_t *)key;
+	const uint32_t len = (uint32_t)strlen(key);
+	const uint32_t c1 = 0xcc9e2d51;
+	const uint32_t c2 = 0x1b873593;
+	uint32_t hash = MURMUR3_SEED;
+	const uint32_t *blocks;
+	const uint8_t *tail;
+	uint32_t k1;
+	int i;
 
-	while ((c = *key++))
-		hash = ((hash << 5) + hash) + c;
+	blocks = (const uint32_t *)(data + (len / 4) * 4);
+	for (i = 0; i < (int)(len / 4); i++) {
+		uint32_t k1 = blocks[i];
+		k1 *= c1;
+		k1 = ROTL32(k1, 15);
+		k1 *= c2;
+
+		hash ^= k1;
+		hash = ROTL32(hash, 13);
+		hash = hash * 5 + 0xe6546b64;
+	}
+
+	tail = (const uint8_t *)(data + (len / 4) * 4);
+	k1 = 0;
+	switch (len & 3) {
+		case 3:
+			k1 ^= tail[2] << 16;
+		case 2:
+			k1 ^= tail[1] << 8;
+		case 1:
+			k1 ^= tail[0];
+			k1 *= c1;
+			k1 = ROTL32(k1, 15);
+			k1 *= c2;
+			hash ^= k1;
+	}
+
+	hash ^= len;
+	hash ^= (hash >> 16);
+	hash *= 0x85ebca6b;
+	hash ^= (hash >> 13);
+	hash *= 0xc2b2ae35;
+	hash ^= (hash >> 16);
 
 	return hash % HASH_TABLE_SIZE;
-}
-*/
-/*
-static int hash_function(const char *key)
-{
-	unsigned long hash = 0;
-	int c;
-
-	while (c = *key++)
-		hash = c + (hash << 6) + (hash << 16) - hash;
-
-	return hash % HASH_TABLE_SIZE;
-}
-*/
-
-
-#define FNV_PRIME_32 16777619
-#define FNV_OFFSET_32 2166136261U
-
-static int hash_function(const char *str) {
-    uint32_t hash = FNV_OFFSET_32;
-    
-    while (*str) {
-        hash ^= (uint32_t)(*str++);
-        hash *= FNV_PRIME_32;
-    }
-    
-    return hash % HASH_TABLE_SIZE;
 }
 
 
