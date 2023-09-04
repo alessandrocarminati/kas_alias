@@ -64,7 +64,7 @@ struct conf *parse_command_line(int argc, char **argv)
 			add_cfg_itm(config, &config->out_file, argv, &i);
 //			config->out_file = strdup(argv[i + 1]);
 //			i++;
-		} else if (strcmp(argv[i], "--verbose") == 0 && i + 1 < argc) {
+		} else if (strcmp(argv[i], "--verbose") == 0) {
 			config->verbose = 1;
 		} else {
 			free_cfg(config);
