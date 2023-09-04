@@ -14,9 +14,8 @@
 int addr2line_pid = -1;
 int a2l_in[2];
 int a2l_out[2];
-char line[MAX_BUF];
 char vmlinux_path[MAX_BUF];
-char addr2line_cmd[MAX_CMD_LEN];
+char line[MAX_BUF];
 FILE *a2l_stdin, *a2l_stdout;
 
 static char *normalize_path(const char *input_path, char *output_path)
@@ -185,87 +184,4 @@ int addr2line_cleanup(void)
 	}
 
 	return 1;
-}
-
-static char *find_executable(const char *command)
-{
-	char *path_env = getenv("PATH");
-	char *executable_path;
-	char *path_copy;
-	char *path;
-	int n;
-
-	if (!path_env)
-		return NULL;
-
-	path_copy = strdup(path_env);
-	if (!path_copy)
-		return NULL;
-
-	path = strtok(path_copy, ":");
-	while (path) {
-		n = snprintf(0, 0, "%s/%s", path, command);
-		executable_path = (char *)malloc(n + 1);
-		snprintf(executable_path, n + 1, "%s/%s", path, command);
-		if (access(executable_path, X_OK) == 0) {
-			free(path_copy);
-			return executable_path;
-		}
-
-	path = strtok(NULL, ":");
-	free(executable_path);
-	executable_path = NULL;
-	}
-
-	free(path_copy);
-	if (executable_path)
-		free(executable_path);
-	return NULL;
-}
-
-const char *get_addr2line(int mode)
-{
-	int buf_len = 0;
-	char *buf = "";
-
-	switch (mode) {
-	case A2L_CROSS:
-		buf = getenv("CROSS_COMPILE");
-		if (buf) {
-			memcpy(addr2line_cmd, buf, strlen(buf));
-			buf_len = strlen(buf);
-		}
-	case A2L_NATIVE_ONLY:
-		memcpy(addr2line_cmd + buf_len, ADDR2LINE, strlen(ADDR2LINE));
-		buf = find_executable(addr2line_cmd);
-		if (buf) {
-			memcpy(addr2line_cmd, buf, strlen(buf));
-			free(buf);
-		}
-		return addr2line_cmd;
-	case A2L_LLVM:
-	default:
-		return NULL;
-	}
-}
-
-char *get_vmlinux(char *input)
-{
-	const char *match_string1 = ".syms";
-	const char *match_string2 = ".tmp_vmlinux.kallsyms";
-	char *result = NULL;
-	char *match_pos;
-
-	match_pos = strstr(input, match_string1);
-	if (!match_pos)
-		return NULL;
-
-	match_pos = strstr(input, match_string2);
-	if (!match_pos)
-		return NULL;
-
-	result = strdup(input);
-	match_pos = strstr(result, match_string1);
-	*match_pos = '\0';
-	return result;
 }

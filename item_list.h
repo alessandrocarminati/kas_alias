@@ -1,26 +1,38 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 #ifndef ITEM_LIST_H
 #define ITEM_LIST_H
+
 #include <stdint.h>
 
 #define MAX_NAME_SIZE 256
-#define BY_ADDRESS 1
-#define BY_NAME 2
+#define HASH_TABLE_SIZE 100
 
 struct item {
-	char		symb_name[MAX_NAME_SIZE];
-	uint64_t	addr;
-	char		stype;
-	struct item	*next;
+	char symb_name[MAX_NAME_SIZE];
+	uint64_t addr;
+	char stype;
+	struct item *next;
 };
 
-void build_index(struct item *list);
-struct item *add_item(struct item **list, const char *name, char stype, uint64_t addr);
-void sort_list(struct item **list, int sort_by);
-struct item *merge(struct item *left, struct item *right, int sort_by);
-struct item *merge_sort(struct item *head, int sort_by);
-void sort_list_m(struct item **head, int sort_by);
-int insert_after(struct item *list, const uint64_t search_addr,
-		 const char *name, uint64_t addr, char stype);
-void free_items(struct item **head);
+struct hash_node {
+	char key[MAX_NAME_SIZE];
+	int count;
+	struct hash_node *next;
+};
+
+struct hash_index {
+	struct hash_node *table[HASH_TABLE_SIZE];
+};
+
+struct heads {
+	struct item *head;
+	struct item *tail;
+	struct hash_index *index;
+};
+
+struct heads *init_heads();
+void add_item(struct heads *, char *, uint64_t, char);
+void cleanup_list(struct heads *);
+int item_counter(struct heads *, char *);
+void add_item_at(struct item *, char *, uint64_t, char);
 #endif

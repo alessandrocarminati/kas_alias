@@ -9,15 +9,16 @@
 #include <regex.h>
 #include <ctype.h>
 
-#include "item_list.h"
-#include "duplicates_list.h"
 #include "a2l.h"
+#include "conf.h"
+#include "item_list.h"
 
+//#define DEFER(defer_func) __attribute__ ((cleanup(defer_func)))
 #define SYMB_IS_TEXT(s) ((((s)->stype) == 't') ||  (((s)->stype) == 'T'))
 #define SYMB_IS_DATA(s) ((((s)->stype) == 'b') ||  (((s)->stype) == 'B') || \
 			 (((s)->stype) == 'd') ||  (((s)->stype) == 'D') || \
 			 (((s)->stype) == 'r') ||  (((s)->stype) == 'R'))
-#define NEED2NORMALIZE(str_to_norm, chr_pos)
+#define NEED2NORMALIZE(str_to_norm, chr_pos) \
 	(!isalnum((str_to_norm)[(chr_pos)]) && ((str_to_norm)[(chr_pos)] != '@'))
 #ifdef CONFIG_KALLSYMS_ALIAS_DATA
 #define SYMB_NEEDS_ALIAS(s) (SYMB_IS_TEXT(s) || SYMB_IS_DATA(s))
@@ -58,7 +59,7 @@ static inline void verbose_msg(bool verbose, const char *fmt, ...)
 
 	va_start(args, fmt);
 	if (verbose)
-		printf(fmt, args);
+		vprintf(fmt, args);
 
 	va_end(args);
 }
@@ -113,102 +114,116 @@ static int filter_symbols(char *symbol, const char **ignore_list, int regex_no)
 	return FNOMATCH;
 }
 
+static void printnm(struct heads *h, char *fn)
+{
+	struct item *item_iterator;
+	FILE *of;
+
+	of = fopen(fn, "w");
+	item_iterator = h->head;
+	while (item_iterator) {
+		fprintf(of, "%08lx %c %s\n", item_iterator->addr, item_iterator->stype, item_iterator->symb_name);
+		item_iterator = item_iterator->next;
+	}
+	fclose(of);
+}
+
+void cleanup(struct conf *c, struct heads *h)
+{
+	free_cfg(c);
+	cleanup_list(h);
+}
+
 int main(int argc, char *argv[])
 {
+	struct conf *cfg;
 	char t, sym_name[MAX_NAME_SIZE], new_name[MAX_NAME_SIZE + 15];
-	struct duplicate_item  *duplicate_iterator;
-	struct duplicate_item *duplicate;
-	struct item *head = {NULL};
+	struct heads *h = init_heads();
+	struct item *item_iterator;
 	bool need_2_process = true;
-	struct item *last = {NULL};
-	struct item  *current;
-	int verbose_mode = 0;
 	uint64_t address;
 	FILE *fp;
 	int res;
 
-	if (argc < 2 || argc > 3) {
-		printf("Usage: %s <nmfile> [-verbose]\n", argv[0]);
+
+	cfg = parse_command_line(argc, argv);
+	if (!cfg) {
+		conf_error(argv[0], cfg);
+		cleanup(cfg, h);
 		return 1;
 	}
 
-	if (argc == 3 && strcmp(argv[2], "-verbose") == 0)
-		verbose_mode = 1;
 
-	verbose_msg(verbose_mode, "Scanning nm data(%s)\n", argv[1]);
+	verbose_msg(cfg->verbose, "Scanning nm data(%s)\n", argv[1]);
 
-	fp = fopen(argv[1], "r");
+//	printf("config{%s, %s, %s, %s, %d}\n", cfg->nm_data, cfg->addr2line_cmd, cfg->vmlinux, cfg->out_file, cfg->verbose);
+	fp = fopen(cfg->nm_data, "r");
 	if (!fp) {
-		printf("Can't open input file.\n");
+		printf("Can't open nm_data, file.\n");
+		cleanup(cfg, h);
 		return 1;
 	}
 
-	if (!addr2line_init(get_addr2line(A2L_CROSS), get_vmlinux(argv[1])))
+	if (!addr2line_init(cfg->addr2line_cmd, cfg->vmlinux)){
+		printf("Can't initialize addr2line, file.\n");
+		fclose(fp);
+		cleanup(cfg, h);
 		return 1;
+	}
 
 	while (fscanf(fp, "%lx %c %99s\n", &address, &t, sym_name) == 3) {
 		if (strstr(sym_name, "@_")) {
-			if (verbose_mode && need_2_process)
+			if (cfg->verbose && need_2_process)
 				printf("Already processed\n");
 			need_2_process = false;
 			}
-		last = add_item(&last, sym_name, t, address);
-		if (!last) {
-			printf("Error in allocate memory\n");
-			free_items(&head);
-			return 1;
-		}
-
-		if (!head)
-			head = last;
+		add_item(h, sym_name, address, t);
 	}
 
 	fclose(fp);
 
+//	printnm(h);
+
+//	printf("##################################################################################################################################\n");
+//	printf("##################################################################################################################################\n");
+//	printf("##################################################################################################################################\n");
+//	printf("##################################################################################################################################\n");
+//	printf("##################################################################################################################################\n");
+
+//	printf("reach here\n");
 	if (need_2_process) {
-		verbose_msg(verbose_mode, "Sorting nm data\n");
-		sort_list_m(&head, BY_NAME);
-		verbose_msg(verbose_mode, "Scanning nm data for duplicates\n");
-		duplicate = find_duplicates(head);
-		if (!duplicate) {
-			printf("Error in duplicates list\n");
-			return 1;
-		}
+//		printf("need_2_process\n");
+		item_iterator = h->head;
+		while (item_iterator) {
+			if (item_counter(h, item_iterator->symb_name) > 1) {
+//				printf("-> %s\n", item_iterator->symb_name);
+				res = filter_symbols(item_iterator->symb_name,
+						     ignore_regex,
+						     sizeof(ignore_regex) /
+						     sizeof(ignore_regex[0]));
+				if (res != FMATCH &&
+				    SYMB_NEEDS_ALIAS(item_iterator)) {
+					if (res < 0) {
+						printf("symbol matching error\n");
+						cleanup(cfg, h);
+						return 1;
+					}
 
-		verbose_msg(verbose_mode, "Applying suffixes\n");
-		build_index(head);
-		duplicate_iterator = duplicate;
-		while (duplicate_iterator) {
-			res = filter_symbols(duplicate_iterator->original_item->symb_name,
-					     ignore_regex, sizeof(ignore_regex) /
-					     sizeof(ignore_regex[0]));
-			if (res != FMATCH &&
-			    SYMB_NEEDS_ALIAS(duplicate_iterator->original_item)) {
-				if (res < 0)
-					return 1;
-
-				create_file_suffix(duplicate_iterator->original_item->symb_name,
-						   duplicate_iterator->original_item->addr,
-						   new_name, vmlinux_path);
-				if (!insert_after(head, duplicate_iterator->original_item->addr,
-						  new_name, duplicate_iterator->original_item->addr,
-						  duplicate_iterator->original_item->stype))
-					return 1;
+					create_file_suffix(item_iterator->symb_name,
+							   item_iterator->addr,
+							   new_name, vmlinux_path);
+//					printf("--> %s\n", new_name);
+					add_item_at(item_iterator, new_name,
+							  item_iterator->addr, item_iterator->stype);
+				}
 			}
-
-			duplicate_iterator = duplicate_iterator->next;
+		item_iterator = item_iterator->next;
 		}
-
-		sort_list_m(&head, BY_ADDRESS);
-	}
-	current = head;
-	while (current) {
-		printf("%08lx %c %s\n", current->addr, current->stype, current->symb_name);
-		current = current->next;
 	}
 
-	free_items(&head);
-	free_duplicates(&duplicate);
+	printnm(h, cfg->out_file);
+
 	addr2line_cleanup();
+	cleanup(cfg, h);
 	return 0;
 }
