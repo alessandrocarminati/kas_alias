@@ -48,22 +48,12 @@ struct conf *parse_command_line(int argc, char **argv)
 	for (i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "-a") == 0 && i + 1 < argc) {
 			add_cfg_itm(config, &config->addr2line_cmd, argv, &i);
-//			config->addr2line_cmd = strdup(argv[i + 1]);
-//			config->args_free[config->args_free_cnt++] = config->addr2line_cmd;
-//			i++;
 		} else if (strcmp(argv[i], "-v") == 0 && i + 1 < argc) {
 			add_cfg_itm(config, &config->vmlinux, argv, &i);
-//			config->vmlinux = strdup(argv[i + 1]);
-//			config->args_free[args_free_cnt++] = config->vmlinux;
-//			i++;
 		} else if (strcmp(argv[i], "-n") == 0 && i + 1 < argc) {
 			add_cfg_itm(config, &config->nm_data, argv, &i);
-//			config->nm_data = strdup(argv[i + 1]);
-//			i++;
 		} else if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
 			add_cfg_itm(config, &config->out_file, argv, &i);
-//			config->out_file = strdup(argv[i + 1]);
-//			i++;
 		} else if (strcmp(argv[i], "--verbose") == 0) {
 			config->verbose = 1;
 		} else {

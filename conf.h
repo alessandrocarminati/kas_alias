@@ -9,7 +9,6 @@ struct conf {
 	char *nm_data;
 	char *out_file;
 	int verbose;
-
 	//janitor stuff
 	char *args_free[MAX_ARG_NUM];
 	int args_free_cnt;

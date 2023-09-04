@@ -13,7 +13,6 @@
 #include "conf.h"
 #include "item_list.h"
 
-//#define DEFER(defer_func) __attribute__ ((cleanup(defer_func)))
 #define SYMB_IS_TEXT(s) ((((s)->stype) == 't') ||  (((s)->stype) == 'T'))
 #define SYMB_IS_DATA(s) ((((s)->stype) == 'b') ||  (((s)->stype) == 'B') || \
 			 (((s)->stype) == 'd') ||  (((s)->stype) == 'D') || \
@@ -157,9 +156,8 @@ int main(int argc, char *argv[])
 	}
 
 
-	verbose_msg(cfg->verbose, "Scanning nm data(%s)\n", argv[1]);
+	verbose_msg(cfg->verbose, "Scanning nm data(%s)\n", cfg->nm_data);
 
-//	printf("config{%s, %s, %s, %s, %d}\n", cfg->nm_data, cfg->addr2line_cmd, cfg->vmlinux, cfg->out_file, cfg->verbose);
 	fp = fopen(cfg->nm_data, "r");
 	if (!fp) {
 		printf("Can't open nm_data, file.\n");
@@ -167,6 +165,7 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+	verbose_msg(cfg->verbose, "Using %s to query %s as DWARF source\n", cfg->addr2line_cmd, cfg->vmlinux);
 	if (!addr2line_init(cfg->addr2line_cmd, cfg->vmlinux)){
 		printf("Can't initialize addr2line, file.\n");
 		fclose(fp);
@@ -184,23 +183,11 @@ int main(int argc, char *argv[])
 	}
 
 	fclose(fp);
-
-	printf("#################################################### hash_collision_max = %d \n", hash_collision_max);
-//	printnm(h);
-
-//	printf("##################################################################################################################################\n");
-//	printf("##################################################################################################################################\n");
-//	printf("##################################################################################################################################\n");
-//	printf("##################################################################################################################################\n");
-//	printf("##################################################################################################################################\n");
-
-//	printf("reach here\n");
+	verbose_msg(cfg->verbose, "hash bin max length = %d \n", hash_collision_max);
 	if (need_2_process) {
-//		printf("need_2_process\n");
 		item_iterator = h->head;
 		while (item_iterator) {
 			if (item_counter(h, item_iterator->symb_name) > 1) {
-//				printf("-> %s\n", item_iterator->symb_name);
 
 #ifdef CONFIG_KALLSYMS_ALIAS_DATA
 				res = filter_symbols(item_iterator->symb_name,
@@ -220,7 +207,6 @@ int main(int argc, char *argv[])
 					create_file_suffix(item_iterator->symb_name,
 							   item_iterator->addr,
 							   new_name, vmlinux_path);
-//					printf("--> %s\n", new_name);
 					add_item_at(item_iterator, new_name,
 							  item_iterator->addr, item_iterator->stype);
 				}
@@ -229,6 +215,7 @@ int main(int argc, char *argv[])
 		}
 	}
 
+	verbose_msg(cfg->verbose, "The output is written on %s\n", cfg->out_file);
 	printnm(h, cfg->out_file);
 
 	addr2line_cleanup();

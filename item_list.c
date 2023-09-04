@@ -152,7 +152,6 @@ void add_item(struct heads *h, char *key, uint64_t addr, char stype)
 	update_hash_index(h->index, key);
 }
 
-//return the address of the next element to iterate, reurn itm on fail.
 void add_item_at(struct item *itm, char *symb_name, uint64_t addr, char stype)
 {
 	struct item *new_item;
