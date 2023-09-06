@@ -115,17 +115,22 @@ static int filter_symbols(char *symbol, const char **ignore_list, int regex_no)
 }
 #endif
 
-static void printnm(struct heads *h, char *fn)
+static void printnm(struct heads *h, char *fn, int items_no)
 {
 	struct item *item_iterator;
+	int pos = 0;
+	char *buf;
 	FILE *of;
 
-	of = fopen(fn, "w");
+	buf = malloc( items_no * 2 *sizeof(struct item));
+
 	item_iterator = h->head;
 	while (item_iterator) {
-		fprintf(of, "%08lx %c %s\n", item_iterator->addr, item_iterator->stype, item_iterator->symb_name);
+		pos += sprintf(buf + pos, "%08lx %c %s\n", item_iterator->addr, item_iterator->stype, item_iterator->symb_name);
 		item_iterator = item_iterator->next;
 	}
+	of = fopen(fn, "w");
+	fwrite(buf, 1, pos, of);
 	fclose(of);
 }
 
@@ -143,6 +148,8 @@ int main(int argc, char *argv[])
 	struct item *item_iterator;
 	bool need_2_process = true;
 	uint64_t address;
+	int items_no = 0;
+	int counter = 0;
 	FILE *fp;
 #ifdef CONFIG_KALLSYMS_ALIAS_DATA
 	int res;
@@ -174,6 +181,7 @@ int main(int argc, char *argv[])
 	}
 
 	while (fscanf(fp, "%lx %c %99s\n", &address, &t, sym_name) == 3) {
+		items_no++;
 		if (strstr(sym_name, "@_")) {
 			if (cfg->verbose && need_2_process)
 				printf("Already processed\n");
@@ -183,7 +191,7 @@ int main(int argc, char *argv[])
 	}
 
 	fclose(fp);
-	verbose_msg(cfg->verbose, "hash bin max length = %d \n", hash_collision_max);
+	verbose_msg(cfg->verbose, "collected %d items, hash bin max length = %d \n", items_no, hash_collision_max);
 	if (need_2_process) {
 		item_iterator = h->head;
 		while (item_iterator) {
@@ -204,6 +212,7 @@ int main(int argc, char *argv[])
 #else
 				if (SYMB_NEEDS_ALIAS(item_iterator)) {
 #endif
+					counter++;
 					create_file_suffix(item_iterator->symb_name,
 							   item_iterator->addr,
 							   new_name, vmlinux_path);
@@ -215,8 +224,9 @@ int main(int argc, char *argv[])
 		}
 	}
 
+	verbose_msg(cfg->verbose, "%d alias created\n", counter);
 	verbose_msg(cfg->verbose, "The output is written on %s\n", cfg->out_file);
-	printnm(h, cfg->out_file);
+	printnm(h, cfg->out_file, items_no);
 
 	addr2line_cleanup();
 	cleanup(cfg, h);
