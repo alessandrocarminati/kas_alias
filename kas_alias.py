@@ -109,7 +109,7 @@ if __name__ == "__main__":
     config = parser.parse_args()
 
     try:
-        config.linux_base_dir = os.path.dirname(config.vmlinux_file)
+        config.linux_base_dir = os.getcwd()+"/"
         symbol_list, name_occurrences = parse_file(config.nm_data_file)
         addr2line_process = start_addr2line_process(config.vmlinux_file, config.addr2line_file)
 
