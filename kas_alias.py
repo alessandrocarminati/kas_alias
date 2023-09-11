@@ -94,7 +94,7 @@ def addr2line_fetch_address(addr2line_process, address):
 
 def process_line(line, config):
     if config:
-        return obj.type == "T" or obj.type == "t" or (obj.type == "D" or obj.type == "d" and any(re.match(regex, obj.name) for regex in regex_list))
+        return obj.type.lower() in {"t", "d"} and any(re.match(regex, obj.name) for regex in regex_list)
     else:
         return obj.type == "T" or obj.type == "t"
 
@@ -119,7 +119,9 @@ if __name__ == "__main__":
                 if process_line(obj, config.include_data) :
                     if name_occurrences[obj.name] > 1:
                         output = addr2line_fetch_address(addr2line_process, obj.address)
-                        decoration = config.separator + "".join(["_" if not c.isalnum() else c for c in output.replace(config.linux_base_dir, "")])
+                        decoration = config.separator + "".join(
+                            "_" if not c.isalnum() else c for c in output.replace(config.linux_base_dir, "")
+                        )
                         if decoration != config.separator + "____":
                             file.write("{} {} {}\n".format(obj.address, obj.type, obj.name + decoration))
 

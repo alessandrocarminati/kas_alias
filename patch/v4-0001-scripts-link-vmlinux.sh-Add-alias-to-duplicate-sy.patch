@@ -1,4 +1,4 @@
-From 97db5308b4e1ff6fec48b7802982c6ed6fb30b2e Mon Sep 17 00:00:00 2001
+From dca56cf38d6ee79cd3695037f549f511c7f96706 Mon Sep 17 00:00:00 2001
 From: "Alessandro Carminati (Red Hat)" <alessandro.carminati@gmail.com>
 Date: Sat, 9 Sep 2023 08:50:39 +0000
 Subject: [PATCH v4] scripts/link-vmlinux.sh: Add alias to duplicate symbols
@@ -95,9 +95,9 @@ Signed-off-by: Alessandro Carminati (Red Hat) <alessandro.carminati@gmail.com>
 ---
  Makefile                |   4 +-
  init/Kconfig            |  33 ++++++++++
- scripts/kas_alias.py    | 133 ++++++++++++++++++++++++++++++++++++++++
+ scripts/kas_alias.py    | 135 ++++++++++++++++++++++++++++++++++++++++
  scripts/link-vmlinux.sh |  25 +++++++-
- 4 files changed, 192 insertions(+), 3 deletions(-)
+ 4 files changed, 194 insertions(+), 3 deletions(-)
  create mode 100755 scripts/kas_alias.py
 
 diff --git a/Makefile b/Makefile
@@ -175,10 +175,10 @@ index 6d35728b94b2..7e21596d91f1 100644
  # syscall, maps, verifier
 diff --git a/scripts/kas_alias.py b/scripts/kas_alias.py
 new file mode 100755
-index 000000000000..15b2d9a2738e
+index 000000000000..1b3cd1f0c536
 --- /dev/null
 +++ b/scripts/kas_alias.py
-@@ -0,0 +1,133 @@
+@@ -0,0 +1,135 @@
 +#!/usr/bin/env python3
 +# SPDX-License-Identifier: GPL-2.0-only
 +#
@@ -275,7 +275,7 @@ index 000000000000..15b2d9a2738e
 +
 +def process_line(line, config):
 +    if config:
-+        return obj.type == "T" or obj.type == "t" or (obj.type == "D" or obj.type == "d" and any(re.match(regex, obj.name) for regex in regex_list))
++        return obj.type.lower() in {"t", "d"} and any(re.match(regex, obj.name) for regex in regex_list)
 +    else:
 +        return obj.type == "T" or obj.type == "t"
 +
@@ -300,7 +300,9 @@ index 000000000000..15b2d9a2738e
 +                if process_line(obj, config.include_data) :
 +                    if name_occurrences[obj.name] > 1:
 +                        output = addr2line_fetch_address(addr2line_process, obj.address)
-+                        decoration = config.separator + "".join(["_" if not c.isalnum() else c for c in output.replace(config.linux_base_dir, "")])
++                        decoration = config.separator + "".join(
++                            "_" if not c.isalnum() else c for c in output.replace(config.linux_base_dir, "")
++                        )
 +                        if decoration != config.separator + "____":
 +                            file.write("{} {} {}\n".format(obj.address, obj.type, obj.name + decoration))
 +
