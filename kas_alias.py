@@ -94,7 +94,7 @@ def addr2line_fetch_address(addr2line_process, address):
 
 def process_line(line, config):
     if config:
-        return obj.type.lower() in {"t", "d"} and any(re.match(regex, obj.name) for regex in regex_list)
+         return obj.type in {"T", "t"} or (obj.type in {"D", "d"} and any(re.match(regex, obj.name) for regex in regex_list))
     else:
         return obj.type == "T" or obj.type == "t"
 
