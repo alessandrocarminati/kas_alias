@@ -12,25 +12,23 @@ import argparse
 import re
 from collections import namedtuple
 
-regex_list = [
-        "^__cfi_.*$",
+regex_filter = [
+        "^__compound_literal\\.[0-9]+$",
+        "^__[wm]*key\\.[0-9]+$",
         "^_*TRACE_SYSTEM.*$",
         "^__already_done\\.[0-9]+$",
+        "^__msg\\.[0-9]+$",
+        "^__func__\\.[0-9]+$",
+        "^CSWTCH\\.[0-9]+$",
+        "^_rs\\.[0-9]+$",
         "^___tp_str\\.[0-9]+$",
+        "^__flags\\.[0-9]+$",
         "^___done\\.[0-9]+$",
         "^__print_once\\.[0-9]+$",
-        "^_rs\\.[0-9]+$",
-        "^__compound_literal\\.[0-9]+$",
         "^___once_key\\.[0-9]+$",
-        "^__func__\\.[0-9]+$",
-        "^__msg\\.[0-9]+$",
-        "^CSWTCH\\.[0-9]+$",
-        "^__flags\\.[0-9]+$",
-        "^__wkey.*$",
-        "^__mkey.*$",
-        "^__key.*$",
-        "^__pfx_.*$"
-]
+        "^__pfx_.*$",
+        "^__cfi_.*$"
+        ]
 
 class SeparatorType:
     def __call__(self, separator):
@@ -87,16 +85,16 @@ def addr2line_fetch_address(addr2line_process, address):
         addr2line_process.stdout.readline().strip()
         output = addr2line_process.stdout.readline().strip()
 
-        return output
+        return os.path.normpath(output)
     except Exception as e:
         print(f"Error communicating with addr2line: {str(e)}")
         return None
 
 def process_line(line, config):
     if config:
-         return obj.type in {"T", "t"} or (obj.type in {"D", "d"} and any(re.match(regex, obj.name) for regex in regex_list))
+        return not (any(re.match(regex, obj.name) for regex in regex_filter))
     else:
-        return obj.type == "T" or obj.type == "t"
+        return obj.type in {"T", "t"}
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Add alias to multiple occurring symbols name in kallsyms')
@@ -116,14 +114,13 @@ if __name__ == "__main__":
         with open(config.output_file, 'w') as file:
             for obj in symbol_list:
                 file.write("{} {} {}\n".format(obj.address, obj.type, obj.name))
-                if process_line(obj, config.include_data) :
-                    if name_occurrences[obj.name] > 1:
-                        output = addr2line_fetch_address(addr2line_process, obj.address)
-                        decoration = config.separator + "".join(
-                            "_" if not c.isalnum() else c for c in output.replace(config.linux_base_dir, "")
-                        )
-                        if decoration != config.separator + "____":
-                            file.write("{} {} {}\n".format(obj.address, obj.type, obj.name + decoration))
+                if (name_occurrences[obj.name] > 1) and process_line(obj, config.include_data) :
+                    output = addr2line_fetch_address(addr2line_process, obj.address)
+                    decoration = config.separator + "".join(
+                        "_" if not c.isalnum() else c for c in output.replace(config.linux_base_dir, "")
+                    )
+                    if decoration != config.separator + "____":
+                        file.write("{} {} {}\n".format(obj.address, obj.type, obj.name + decoration))
 
         addr2line_process.stdin.close()
         addr2line_process.stdout.close()
