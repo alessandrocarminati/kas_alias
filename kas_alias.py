@@ -76,7 +76,7 @@ def start_addr2line_process(binary_file, addr2line_file):
         return addr2line_process
     except Exception as e:
         print(f"Error starting addr2line process: {str(e)}")
-        return None
+        sys.exit(1)
 
 def addr2line_fetch_address(addr2line_process, address):
     try:
@@ -88,9 +88,9 @@ def addr2line_fetch_address(addr2line_process, address):
         return os.path.normpath(output)
     except Exception as e:
         print(f"Error communicating with addr2line: {str(e)}")
-        return None
+        sys.exit(1)
 
-def process_line(line, config):
+def process_line(obj, config):
     if config:
         return not (any(re.match(regex, obj.name) for regex in regex_filter))
     else:
@@ -113,14 +113,17 @@ if __name__ == "__main__":
 
         with open(config.output_file, 'w') as file:
             for obj in symbol_list:
-                file.write("{} {} {}\n".format(obj.address, obj.type, obj.name))
+                file.write(f"{obj.address} {obj.type} {obj.name}\n")
                 if (name_occurrences[obj.name] > 1) and process_line(obj, config.include_data) :
                     output = addr2line_fetch_address(addr2line_process, obj.address)
                     decoration = config.separator + "".join(
                         "_" if not c.isalnum() else c for c in output.replace(config.linux_base_dir, "")
                     )
+                    # The addr2line can emit the special string "?:??" when addr2line can not find the
+                    # specified address in the DWARF section that after normalization it becomes "____".
+                    # In such cases, emitting an alias wouldn't make sense, so it is skipped.
                     if decoration != config.separator + "____":
-                        file.write("{} {} {}\n".format(obj.address, obj.type, obj.name + decoration))
+                        file.write(f"{obj.address} {obj.type} {obj.name + decoration}\n")
 
         addr2line_process.stdin.close()
         addr2line_process.stdout.close()
