@@ -102,12 +102,13 @@ if __name__ == "__main__":
     parser.add_argument('-v', "--vmlinux", dest="vmlinux_file", required=True)
     parser.add_argument('-o', "--outfile", dest="output_file", required=True)
     parser.add_argument('-n', "--nmdata", dest="nm_data_file", required=True)
+    parser.add_argument('-b', "--basedir", dest="linux_base_dir", required=True)
     parser.add_argument('-s', "--separator", dest="separator", required=False, default="@", type=SeparatorType())
     parser.add_argument('-d', "--data", dest="include_data", required=False, action='store_true')
     config = parser.parse_args()
 
     try:
-        config.linux_base_dir = os.getcwd()+"/"
+        config.linux_base_dir = os.path.normpath(os.getcwd() + "/" + config.linux_base_dir) + "/"
         symbol_list, name_occurrences = parse_file(config.nm_data_file)
         addr2line_process = start_addr2line_process(config.vmlinux_file, config.addr2line_file)
 
