@@ -90,11 +90,11 @@ def addr2line_fetch_address(addr2line_process, address):
         print(f"Error communicating with addr2line: {str(e)}")
         sys.exit(1)
 
-def process_line(obj, config):
-    if config:
+def process_line(obj, process_data_sym):
+    if process_data_sym:
         return not (any(re.match(regex, obj.name) for regex in regex_filter))
     else:
-        return obj.type in {"T", "t"}
+        return (obj.type in {"T", "t"}) and (not (any(re.match(regex, obj.name) for regex in regex_filter)))
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Add alias to multiple occurring symbols name in kallsyms')
@@ -104,7 +104,7 @@ if __name__ == "__main__":
     parser.add_argument('-n', "--nmdata", dest="nm_data_file", required=True)
     parser.add_argument('-b', "--basedir", dest="linux_base_dir", required=True)
     parser.add_argument('-s', "--separator", dest="separator", required=False, default="@", type=SeparatorType())
-    parser.add_argument('-d', "--data", dest="include_data", required=False, action='store_true')
+    parser.add_argument('-d', "--process_data", dest="process_data_sym", required=False, action='store_true')
     config = parser.parse_args()
 
     try:
@@ -115,7 +115,7 @@ if __name__ == "__main__":
         with open(config.output_file, 'w') as file:
             for obj in symbol_list:
                 file.write(f"{obj.address} {obj.type} {obj.name}\n")
-                if (name_occurrences[obj.name] > 1) and process_line(obj, config.include_data) :
+                if (name_occurrences[obj.name] > 1) and process_line(obj, config.process_data_sym) :
                     output = addr2line_fetch_address(addr2line_process, obj.address)
                     decoration = config.separator + "".join(
                         "_" if not c.isalnum() else c for c in output.replace(config.linux_base_dir, "")
