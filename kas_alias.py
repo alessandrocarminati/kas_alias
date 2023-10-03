@@ -36,6 +36,9 @@ class SeparatorType:
             raise argparse.ArgumentTypeError("Separator must be a single character")
         return separator
 
+class Addr2LineError(Exception):
+    pass
+
 Line = namedtuple('Line', ['address', 'type', 'name'])
 
 def parse_file(filename):
@@ -53,19 +56,6 @@ def parse_file(filename):
 
     return symbol_list, name_occurrences
 
-def find_duplicate(symbol_list, name_occurrences):
-    name_to_lines = {}
-    duplicate_lines = []
-
-    for line in symbol_list:
-        if line.name in name_to_lines:
-            first_occurrence = name_to_lines[line.name]
-            duplicate_lines.extend([first_occurrence, line])
-        else:
-            name_to_lines[line.name] = line
-
-    return duplicate_lines
-
 def start_addr2line_process(binary_file, addr2line_file):
     try:
         addr2line_process = subprocess.Popen([addr2line_file, '-fe', binary_file],
@@ -75,8 +65,7 @@ def start_addr2line_process(binary_file, addr2line_file):
                                              text=True)
         return addr2line_process
     except Exception as e:
-        print(f"Error starting addr2line process: {str(e)}")
-        sys.exit(1)
+         raise Addr2LineError(f"Error starting addr2line process: {str(e)}")
 
 def addr2line_fetch_address(addr2line_process, address):
     try:
@@ -87,8 +76,7 @@ def addr2line_fetch_address(addr2line_process, address):
 
         return os.path.normpath(output)
     except Exception as e:
-        print(f"Error communicating with addr2line: {str(e)}")
-        sys.exit(1)
+        raise Addr2LineError(f"Error communicating with addr2line: {str(e)}")
 
 def process_line(obj, process_data_sym):
     if process_data_sym:
@@ -131,6 +119,9 @@ if __name__ == "__main__":
         addr2line_process.stderr.close()
         addr2line_process.wait()
 
+    except Addr2LineError as e:
+        print(f"An error occurred in addr2line: {str(e)}")
+        raise SystemExit("Script terminated due to an error")
     except Exception as e:
         print(f"An error occurred: {str(e)}")
         raise SystemExit("Script terminated due to an error")
