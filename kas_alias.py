@@ -12,6 +12,7 @@ import argparse
 import re
 from collections import namedtuple
 
+# Regex representing symbols that needs no alias
 regex_filter = [
         "^__compound_literal\\.[0-9]+$",
         "^__[wm]*key\\.[0-9]+$",
@@ -39,9 +40,9 @@ class SeparatorType:
 class Addr2LineError(Exception):
     pass
 
-# it takes an nm data and returns symbol_list and name_occurences
 Line = namedtuple('Line', ['address', 'type', 'name'])
 
+# Parses a given nm output and returns the symbol list along with a hash of symbol occurrences
 def parse_nm_lines(lines, symbol_list=None, name_occurrences=None):
     if symbol_list is None:
         symbol_list = []
@@ -58,6 +59,7 @@ def parse_nm_lines(lines, symbol_list=None, name_occurrences=None):
 
     return symbol_list, name_occurrences
 
+# Initializes an addr2line server process for the given ELF object
 def start_addr2line_process(binary_file, addr2line_file):
     try:
         addr2line_process = subprocess.Popen([addr2line_file, '-fe', binary_file],
@@ -69,6 +71,7 @@ def start_addr2line_process(binary_file, addr2line_file):
     except Exception as e:
          raise Addr2LineError(f"Error starting addr2line process: {str(e)}")
 
+# Queries a specific address using the active addr2line process
 def addr2line_fetch_address(addr2line_process, address):
     try:
         addr2line_process.stdin.write(address + '\n')
@@ -80,12 +83,14 @@ def addr2line_fetch_address(addr2line_process, address):
     except Exception as e:
         raise Addr2LineError(f"Error communicating with addr2line: {str(e)}")
 
+# Determines whether a duplicate item requires an alias or not
 def process_line(obj, process_data_sym):
     if process_data_sym:
         return not (any(re.match(regex, obj.name) for regex in regex_filter))
     else:
         return (obj.type in {"T", "t"}) and (not (any(re.match(regex, obj.name) for regex in regex_filter)))
 
+# Reads a text file and retrieves its content
 def fetch_file_lines(filename):
     try:
         with open(filename, 'r') as file:
@@ -94,7 +99,7 @@ def fetch_file_lines(filename):
     except FileNotFoundError:
         raise FileNotFoundError(f"File not found: {filename}")
 
-# Executes nm on a given file an returns its output as string list
+# Runs the nm command on a specified file and returns its output as a list of strings
 def do_nm(filename, nm_executable):
     try:
         nm_output = subprocess.check_output([nm_executable, '-n', filename], universal_newlines=True, stderr=subprocess.STDOUT).splitlines()
@@ -103,29 +108,15 @@ def do_nm(filename, nm_executable):
         print(f"Error executing 'nm' command: {e.output}")
         return []
 
-# --------------------> should I need to close file?
-def produce_output_vmlinux(config, symbol_list, name_occurrences, addr2line_process):
-    with open(config.output_file, 'w') as output_file:
-        for obj in symbol_list:
-            output_file.write(f"{obj.address} {obj.type} {obj.name}\n")
-            if (name_occurrences[obj.name] > 1) and process_line(obj, config.process_data_sym):
-                output = addr2line_fetch_address(addr2line_process, obj.address)
-                decoration = config.separator + "".join(
-                    "_" if not c.isalnum() else c for c in output.replace(config.linux_base_dir, "")
-                )
-                # The addr2line can emit the special string "?:??" when addr2line can not find the
-                # specified address in the DWARF section that after normalization it becomes "____".
-                # In such cases, emitting an alias wouldn't make sense, so it is skipped.
-                if decoration != config.separator + "____":
-                    output_file.write(f"{obj.address} {obj.type} {obj.name + decoration}\n")
-
-# takes a line object and a decoration string and produces an argument to use with objcopy to add an alias to the module object file
+# Accepts a Line object and a decoration string, then generates an argument to be used with objcopy for
+# adding an alias to the module's object file
 def make_objcpy_arg(obj, decoration):
     section = ".text" if obj.type.upper() == "T" else (".rodata" if obj.type.upper() == "D" else ".bss")
     flag = "global" if obj.type.isupper() else "local"
 
     return f"--add-symbol {obj.name + decoration}={section}:{obj.address},{flag} "
 
+# Adds aliases to a given module's object file by executing objcopy
 def execute_objcopy(objcopy_executable, objcopy_args, object_file):
     # Rename the original object file by adding a suffix
     backup_file = object_file + '.bak'
@@ -140,23 +131,43 @@ def execute_objcopy(objcopy_executable, objcopy_args, object_file):
         os.rename(backup_file, object_file)
         raise SystemExit("Script terminated due to an error")
 
+# Generates symbol decoration by querying addr2line
+def generate_decoration(obj, config, addr2line_process):
+    output = addr2line_fetch_address(addr2line_process, obj.address)
+    decoration = config.separator + "".join(
+        "_" if not c.isalnum() else c for c in output.replace(config.linux_base_dir, "")
+    )
+    # The addr2line can emit the special string "?:??" when addr2line can not find the
+    # specified address in the DWARF section that after normalization it becomes "____".
+    # In such cases, emitting an alias wouldn't make sense, so it is skipped.
+    if decoration != config.separator + "____":
+       return ""
+    return decoration
+
+# Creates a new module object file with added aliases in the ELF .symtab
 def produce_output_modules(config, symbol_list, name_occurrences, module_file_name, addr2line_process):
     for obj in symbol_list:
         if (name_occurrences[obj.name] > 1) and process_line(obj, config.process_data_sym):
-            output = addr2line_fetch_address(addr2line_process, obj.address)
-            decoration = config.separator + "".join(
-                "_" if not c.isalnum() else c for c in output.replace(config.linux_base_dir, "")
-            )
-            # The addr2line can emit the special string "?:??" when addr2line can not find the
-            # specified address in the DWARF section that after normalization it becomes "____".
-            # In such cases, emitting an alias wouldn't make sense, so it is skipped.
-            if decoration != config.separator + "____":
+            decoration = generate_decoration(obj, config, addr2line_process)
+            if decoration != "":
                 objcopy_args = objcopy_args + make_objcpy_arg(obj, decoration)
 
     execute_objcopy(config.objcopy_file, objcopy_args, module_file_name)
 
+# Generates a new file containing nm data for vmlinux with the added aliases
+def produce_output_vmlinux(config, symbol_list, name_occurrences, addr2line_process):
+    with open(config.output_file, 'w') as output_file:
+        for obj in symbol_list:
+            output_file.write(f"{obj.address} {obj.type} {obj.name}\n")
+            if (name_occurrences[obj.name] > 1) and process_line(obj, config.process_data_sym):
+                decoration = generate_decoration(obj, config, addr2line_process)
+                if decoration != "":
+                    output_file.write(f"{obj.address} {obj.type} {obj.name + decoration}\n")
+
+    close(config.output_file)
+
 if __name__ == "__main__":
-    # Deal with commandline
+    # Handles command-line arguments and generates a config object
     parser = argparse.ArgumentParser(description='Add alias to multiple occurring symbols name in kallsyms')
     parser.add_argument('-a', "--addr2line", dest="addr2line_file", required=True)
     parser.add_argument('-n', "--nm", dest="nm_file", required=True)
@@ -170,39 +181,45 @@ if __name__ == "__main__":
     parser.add_argument('-d', "--process_data", dest="process_data_sym", required=False, action='store_true')
     config = parser.parse_args()
 
-    try:
-        # Determine source base directory
-        config.linux_base_dir = os.path.normpath(os.getcwd() + "/" + config.linux_base_dir) + "/"
+    # link-vmlinux.sh calls this two times: Avoid running kas_alias twice for efficiency and prevent duplicate aliases
+    #  in module processing by checking the last letter of the nm data file
+    if config.nm_data_file and config.nm_data_file[-1] == '2':
+        try:
+            # Determine kernel source code base directory
+            config.linux_base_dir = os.path.normpath(os.getcwd() + "/" + config.linux_base_dir) + "/"
 
-        # Process nm data from vmlinux
-        vmlinux_nm_lines = fetch_file_lines(config.nm_data_file)
-        vmlinux_symbol_list, name_occurrences = parse_nm_lines(vmlinux_nm_lines)
+            # Process nm data from vmlinux
+            vmlinux_nm_lines = fetch_file_lines(config.nm_data_file)
+            vmlinux_symbol_list, name_occurrences = parse_nm_lines(vmlinux_nm_lines)
 
-        # Process nm data for modules
-        module_list = fetch_flie_lines(config.module_list)
-        for module in module_list:
-            module_nm_lines = do_nm(module, config.nm_file)
-            module_symbol_list[module], name_occurrences = parse_nm_lines(module_nm_lines, name_occurrences)
+            # Process nm data for modules
+            module_list = fetch_flie_lines(config.module_list)
+            for module in module_list:
+                module_nm_lines = do_nm(module, config.nm_file)
+                module_symbol_list[module], name_occurrences = parse_nm_lines(module_nm_lines, name_occurrences)
 
-        # Start addr2line resolver
-        addr2line_process = start_addr2line_process(config.vmlinux_file, config.addr2line_file)
+            # Produce file for vmlinux
+            addr2line_process = start_addr2line_process(config.vmlinux_file, config.addr2line_file)
+            produce_output_vmlinux(config, vmlinux_symbol_list, name_occurrences, addr2line_process)
+            addr2line_process.stdin.close()
+            addr2line_process.stdout.close()
+            addr2line_process.stderr.close()
+            addr2line_process.wait()
 
-        # Produce data for vmlinux
-        produce_output_vmlinux(config, vmlinux_symbol_list, name_occurrences, addr2line_process)
+            # Add aliases to module files
+            for module in module_list:
+                addr2line_process = start_addr2line_process(module, config.addr2line_file)
+                produce_output_modules(config, module_symbol_list[module], name_occurrences, addr2line_process)
+                addr2line_process.stdin.close()
+                addr2line_process.stdout.close()
+                addr2line_process.stderr.close()
+                addr2line_process.wait()
 
-	# Add aliases to module files
-        for module in module_list:
-            produce_output_modules(config, module_symbol_list[module], name_occurrences, addr2line_process)
-
-	# Shutdown addr2line process
-        addr2line_process.stdin.close()
-        addr2line_process.stdout.close()
-        addr2line_process.stderr.close()
-        addr2line_process.wait()
-
-    except Addr2LineError as e:
-        print(f"An error occurred in addr2line: {str(e)}")
-        raise SystemExit("Script terminated due to an error")
-    except Exception as e:
-        print(f"An error occurred: {str(e)}")
-        raise SystemExit("Script terminated due to an error")
+        except Addr2LineError as e:
+            print(f"An error occurred in addr2line: {str(e)}")
+            raise SystemExit("Script terminated due to an error")
+        except Exception as e:
+            print(f"An error occurred: {str(e)}")
+            raise SystemExit("Script terminated due to an error")
+    else:
+        shutil.copy(config.nm_data_file, config.output_file)
