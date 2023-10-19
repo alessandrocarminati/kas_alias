@@ -29,6 +29,9 @@ regex_filter = [
         "^___once_key\\.[0-9]+$",
         "^__pfx_.*$",
         "^__cfi_.*$"
+        "^\\.LC[0-9]+$"
+        "^__UNIQUE_ID___.*$"
+        "^symbols\\.[0-9]+$"
         ]
 
 class SeparatorType:
@@ -114,8 +117,15 @@ def do_nm(filename, nm_executable):
 
 # Accepts a Line object and a decoration string, then generates an argument to be used with objcopy for
 # adding an alias to the module's object file
-def make_objcpy_arg(obj, decoration):
-    section = ".text" if obj.type.upper() == "T" else (".data" if obj.type.upper() == "D" else (".rodata" if obj.type.upper() == "R" else ".bss"))
+def make_objcpy_arg(obj, decoration, elf_section_names):
+#    section = elf_section_names[".text"] if obj.type.upper() == "T" else (elf_section_names[".data"] if obj.type.upper() == "D" else (elf_section_names[".rodata"] if obj.type.upper() == "R" else ".bss"))
+    section = (
+        elf_section_names[".text"] if obj.type.upper() == "T" else (
+            elf_section_names[".data"] if obj.type.upper() == "D" else (
+                elf_section_names[".rodata"] if obj.type.upper() == "R" else ".bss"
+            )
+        )
+    )
     flag = "global" if obj.type.isupper() else "local"
 
     return f"--add-symbol {obj.name + decoration}={section}:0x{obj.address},{flag} "
@@ -148,14 +158,48 @@ def generate_decoration(obj, config, addr2line_process):
        return decoration
     return ""
 
+# retrive the meaningful section names from the object header
+def get_section_names(objdump_executable, file_to_operate):
+    try:
+        output = subprocess.check_output([objdump_executable, '-h', file_to_operate], universal_newlines=True)
+
+        section_names = []
+        lines = output.strip().splitlines()
+        section_name_pattern = re.compile(r'^\s*\d+')
+        for line in lines:
+            if section_name_pattern.match(line):
+                parts = line.split()
+                if len(parts) >= 2:
+                    section_name = parts[1]
+                    section_names.append(section_name)
+
+        best_matches = [".text", ".rodata", ".data", ".bss"]
+        result = {}
+
+        for match in best_matches:
+            for section_name in section_names:
+                if section_name == match:
+                    result[match] = section_name
+                    break
+                if section_name.startswith(match + "."):
+                    result[match] = section_name
+                    break
+
+        return result
+
+    except subprocess.CalledProcessError as e:
+        print(f"Error executing objdump: {e}")
+        return {}
+
 # Creates a new module object file with added aliases in the ELF .symtab
 def produce_output_modules(config, symbol_list, name_occurrences, module_file_name, addr2line_process):
     objcopy_args = "";
+    elf_section_names = get_section_names(config.objdump_file, module_file_name)
     for obj in symbol_list:
         if (name_occurrences[obj.name] > 1) and process_line(obj, config.process_data_sym):
             decoration = generate_decoration(obj, config, addr2line_process)
             if decoration != "":
-                objcopy_args = objcopy_args + make_objcpy_arg(obj, decoration)
+                objcopy_args = objcopy_args + make_objcpy_arg(obj, decoration, elf_section_names)
 
     print(f"kas_alias: {config.objcopy_file} {objcopy_args} {module_file_name}.bak {module_file_name}")
     execute_objcopy(config.objcopy_file, objcopy_args, module_file_name)
@@ -192,6 +236,7 @@ if __name__ == "__main__":
     parser.add_argument('-n', "--nmdata", dest="nm_data_file", required=True)
     parser.add_argument('-o', "--outfile", dest="output_file", required=True)
     parser.add_argument('-s', "--separator", dest="separator", required=False, default="@", type=SeparatorType())
+    parser.add_argument('-u', "--objdump", dest="objdump_file", required=True)
     parser.add_argument('-v', "--vmlinux", dest="vmlinux_file", required=True)
     config = parser.parse_args()
 
