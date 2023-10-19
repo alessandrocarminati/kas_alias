@@ -1,0 +1,519 @@
+From 6c090e62ab504e95af0ec16175171abc307663a0 Mon Sep 17 00:00:00 2001
+From: "Alessandro Carminati (Red Hat)" <alessandro.carminati@gmail.com>
+Date: Sat, 9 Sep 2023 08:50:39 +0000
+Subject: [PATCH v6] scripts/link-vmlinux.sh: Add alias to duplicate symbols
+ for kallsyms
+Content-type: text/plain
+
+In the kernel environment, scenarios often arise where identical names
+are shared among symbols within core image or modules.
+While this poses no complications for the kernel's binary itself, it
+creates challenges when conducting trace or probe operations using tools
+like kprobe.
+
+A solution has been introduced, referred to as "kas_alias."
+During the kernel's build process, an extensive scan of all objects is
+performed, encompassing both core kernel components and modules, to
+collect comprehensive symbol information.
+Subsequently, for all duplicate symbolsthe process enriches symbol names
+by appending meaningful suffixes derived from source files and line
+numbers.
+These freshly generated aliases simplify interaction with symbols.
+
+The procedure is executed as follows.
+During the kernel's build phase, an exhaustive search for duplicates among
+symbols that share the same name in both kernel image and all modules
+object files.
+For the kernel core image, a new nem data file is created and alias for
+all duplicate symbols is added.
+For modules, the lib objects the ELF symtable is modified with the
+addition of the alias for the duplicate symbols.
+
+Consider the symbol "device_show", you can expect an output like the
+following:
+
+ ~ # cat /proc/kallsyms | grep " device_show"
+ ffffffff963cd2a0 t device_show
+ ffffffff963cd2a0 t device_show@drivers_pci_pci_sysfs_c_49
+ ffffffff96454b60 t device_show
+ ffffffff96454b60 t device_show@drivers_virtio_virtio_c_16
+ ffffffff966e1700 T device_show_ulong
+ ffffffff966e1740 T device_show_int
+ ffffffff966e1770 T device_show_bool
+ ffffffffc04e10a0 t device_show [mmc_core]
+ ffffffffc04e10a0 t device_show@drivers_mmc_core_sdio_bus_c_45  [mmc_core]
+
+Changes from v1:
+- Integrated changes requested by Masami to exclude symbols with prefixes
+  "_cfi" and "_pfx".
+- Introduced a small framework to handle patterns that need to be excluded
+  from the alias production.
+- Excluded other symbols using the framework.
+- Introduced the ability to discriminate between text and data symbols.
+- Added two new config symbols in this version:
+  CONFIG_KALLSYMS_ALIAS_DATA, which allows data for data, and
+  CONFIG_KALLSYMS_ALIAS_DATA_ALL, which excludes all filters and provides
+  an alias for each duplicated symbol.
+
+https://lore.kernel.org/all/20230711151925.1092080-1-alessandro.carminati@gmail.com/
+
+Changes from v2:
+- Alias tags are created by querying DWARF information from the vmlinux.
+- The filename + line number is normalized and appended to the original
+  name.
+- The tag begins with '@' to indicate the symbol source.
+- Not a change, but worth mentioning, since the alias is added to the
+  existing list, the old duplicated name is preserved, and the livepatch
+  way of dealing with duplicates is maintained.
+- Acknowledging the existence of scenarios where inlined functions
+  declared in header files may result in multiple copies due to compiler
+  behavior, though it is not actionable as it does not pose an operational
+  issue.
+- Highlighting a single exception where the same name refers to different
+  functions: the case of "compat_binfmt_elf.c," which directly includes
+  "binfmt_elf.c" producing identical function copies in two separate
+  modules.
+
+https://lore.kernel.org/all/20230714150326.1152359-1-alessandro.carminati@gmail.com/
+
+Changes from v3:
+- kas_alias was rewritten in Python to create a more concise and
+  maintainable codebase.
+- The previous automation process used by kas_alias to locate the vmlinux
+  and the addr2line has been replaced with an explicit command-line switch
+  for specifying these requirements.
+- addr2line has been added into the main Makefile.
+- A new command-line switch has been introduced, enabling users to extend
+  the alias to global data names.
+
+https://lore.kernel.org/all/20230828080423.3539686-1-alessandro.carminati@gmail.com/
+
+Changes from v4:
+- Fixed the O=<build dir> build issue
+- The tool halts execution upon encountering major issues, thereby ensuring
+  the pipeline is interrupted.
+- A cmdline option to specify the source directory added.
+- Minor code adjusments.
+- Tested on mips32 and i386
+
+https://lore.kernel.org/all/20230919193948.465340-1-alessandro.carminati@gmail.com/
+
+Changes from v5:
+- Regex filter extended to all symbols
+- Alias creation extended to module objects
+- Code cleaned and commented
+
+https://lore.kernel.org/all/20230927173516.1456594-1-alessandro.carminati@gmail.com/
+
+NOTE:
+About the symbols name duplication that happens as consequence of the
+inclusion compat_binfmt_elf.c does, it is evident that this corner is
+inherently challenging the addr2line approach.
+Attempting to conceal this limitation would be counterproductive.
+
+compat_binfmt_elf.c includes directly binfmt_elf.c, addr2line can't help
+but report all functions and data declared by that file, coming from
+binfmt_elf.c.
+
+My position is that, rather than producing a more complicated pipeline
+to handle this corner case, it is better to fix the compat_binfmt_elf.c
+anomaly.
+
+This patch does not deal with the two potentially problematic symbols
+defined by compat_binfmt_elf.c
+
+Signed-off-by: Alessandro Carminati (Red Hat) <alessandro.carminati@gmail.com>
+---
+ Makefile                |   4 +-
+ init/Kconfig            |  22 ++++
+ scripts/kas_alias.py    | 274 ++++++++++++++++++++++++++++++++++++++++
+ scripts/link-vmlinux.sh |  23 +++-
+ 4 files changed, 320 insertions(+), 3 deletions(-)
+ create mode 100755 scripts/kas_alias.py
+
+diff --git a/Makefile b/Makefile
+index 4f283d915e54..f33c179f4cc3 100644
+--- a/Makefile
++++ b/Makefile
+@@ -488,6 +488,7 @@ OBJCOPY		= $(LLVM_PREFIX)llvm-objcopy$(LLVM_SUFFIX)
+ OBJDUMP		= $(LLVM_PREFIX)llvm-objdump$(LLVM_SUFFIX)
+ READELF		= $(LLVM_PREFIX)llvm-readelf$(LLVM_SUFFIX)
+ STRIP		= $(LLVM_PREFIX)llvm-strip$(LLVM_SUFFIX)
++ADDR2LINE	= $(LLVM_PREFIX)llvm-addr2line$(LLVM_SUFFIX)
+ else
+ CC		= $(CROSS_COMPILE)gcc
+ LD		= $(CROSS_COMPILE)ld
+@@ -497,6 +498,7 @@ OBJCOPY		= $(CROSS_COMPILE)objcopy
+ OBJDUMP		= $(CROSS_COMPILE)objdump
+ READELF		= $(CROSS_COMPILE)readelf
+ STRIP		= $(CROSS_COMPILE)strip
++ADDR2LINE	= $(CROSS_COMPILE)addr2line
+ endif
+ RUSTC		= rustc
+ RUSTDOC		= rustdoc
+@@ -611,7 +613,7 @@ export RUSTC_BOOTSTRAP := 1
+ export ARCH SRCARCH CONFIG_SHELL BASH HOSTCC KBUILD_HOSTCFLAGS CROSS_COMPILE LD CC HOSTPKG_CONFIG
+ export RUSTC RUSTDOC RUSTFMT RUSTC_OR_CLIPPY_QUIET RUSTC_OR_CLIPPY BINDGEN CARGO
+ export HOSTRUSTC KBUILD_HOSTRUSTFLAGS
+-export CPP AR NM STRIP OBJCOPY OBJDUMP READELF PAHOLE RESOLVE_BTFIDS LEX YACC AWK INSTALLKERNEL
++export CPP AR NM STRIP OBJCOPY OBJDUMP READELF ADDR2LINE PAHOLE RESOLVE_BTFIDS LEX YACC AWK INSTALLKERNEL
+ export PERL PYTHON3 CHECK CHECKFLAGS MAKE UTS_MACHINE HOSTCXX
+ export KGZIP KBZIP2 KLZOP LZMA LZ4 XZ ZSTD
+ export KBUILD_HOSTCXXFLAGS KBUILD_HOSTLDFLAGS KBUILD_HOSTLDLIBS LDFLAGS_MODULE
+diff --git a/init/Kconfig b/init/Kconfig
+index 6d35728b94b2..d45dd423e1ec 100644
+--- a/init/Kconfig
++++ b/init/Kconfig
+@@ -1738,6 +1738,28 @@ config KALLSYMS_BASE_RELATIVE
+ 	  time constants, and no relocation pass is required at runtime to fix
+ 	  up the entries based on the runtime load address of the kernel.
+ 
++config KALLSYMS_ALIAS_SRCLINE
++	bool "Produces alias for duplicated text symbols" if EXPERT
++	depends on KALLSYMS && DEBUG_INFO && !DEBUG_INFO_SPLIT
++	help
++	  It is not uncommon for drivers or modules related to similar
++	  peripherals to have symbols with the exact same name.
++	  While this is not a problem for the kernel's binary itself, it
++	  becomes an issue when attempting to trace or probe specific
++	  functions using infrastructure like ftrace or kprobe.
++
++	  This option addresses this challenge, producing alias for text
++	  symbol names that include the file name and line where the symbols
++	  are defined in the source code.
++
++config KALLSYMS_ALIAS_SRCLINE_DATA
++	bool "Produces alias also for global variables names"
++	depends on KALLSYMS_ALIAS_SRCLINE
++	help
++	  Sometimes it can be useful to refer to global vars by name. Since
++	  they suffer the same issue as text symbols, this config option
++	  allows having aliases for global variables names too.
++
+ # end of the "standard kernel features (expert users)" menu
+ 
+ # syscall, maps, verifier
+diff --git a/scripts/kas_alias.py b/scripts/kas_alias.py
+new file mode 100755
+index 000000000000..4098dc971ca0
+--- /dev/null
++++ b/scripts/kas_alias.py
+@@ -0,0 +1,274 @@
++#!/usr/bin/env python3
++# SPDX-License-Identifier: GPL-2.0-only
++#
++# Copyright (C) 2023 Red Hat, Inc. Alessandro Carminati <alessandro.carminati@gmail.com>
++#
++# kas_alias: Adds alias to duplicate symbols in the kallsyms output.
++
++import subprocess
++import os
++import argparse
++import re
++from collections import namedtuple
++
++# Regex representing symbols that needs no alias
++regex_filter = [
++        "^__compound_literal\\.[0-9]+$",
++        "^__[wm]*key\\.[0-9]+$",
++        "^_*TRACE_SYSTEM.*$",
++        "^__already_done\\.[0-9]+$",
++        "^__msg\\.[0-9]+$",
++        "^__func__\\.[0-9]+$",
++        "^CSWTCH\\.[0-9]+$",
++        "^_rs\\.[0-9]+$",
++        "^___tp_str\\.[0-9]+$",
++        "^__flags\\.[0-9]+$",
++        "^___done\\.[0-9]+$",
++        "^__print_once\\.[0-9]+$",
++        "^___once_key\\.[0-9]+$",
++        "^__pfx_.*$",
++        "^__cfi_.*$"
++        "^\\.LC[0-9]+$"
++        "^__UNIQUE_ID___.*$"
++        "^symbols\\.[0-9]+$"
++        ]
++
++class SeparatorType:
++    def __call__(self, separator):
++        if len(separator) != 1:
++            raise argparse.ArgumentTypeError("Separator must be a single character")
++        return separator
++
++class Addr2LineError(Exception):
++    pass
++
++Line = namedtuple('Line', ['address', 'type', 'name'])
++
++# Parses a given nm output and returns the symbol list along with a hash of symbol occurrences
++def parse_nm_lines(lines, name_occurrences=None):
++    if name_occurrences is None:
++        name_occurrences = {}
++
++    symbol_list = []
++
++    for line in lines:
++        fields = line.strip().split()
++
++        if len(fields) >= 3:
++            address, type, name = fields[0], fields[1], ' '.join(fields[2:])
++            symbol_list.append(Line(address, type, name))
++            name_occurrences[name] = name_occurrences.get(name, 0) + 1
++
++    return symbol_list, name_occurrences
++
++# Initializes an addr2line server process for the given ELF object
++def start_addr2line_process(binary_file, addr2line_file):
++    try:
++        addr2line_process = subprocess.Popen([addr2line_file, '-fe', binary_file],
++                                             stdin=subprocess.PIPE,
++                                             stdout=subprocess.PIPE,
++                                             stderr=subprocess.PIPE,
++                                             text=True)
++        return addr2line_process
++    except Exception as e:
++         raise Addr2LineError(f"Error starting addr2line process: {str(e)}")
++
++# Queries a specific address using the active addr2line process
++def addr2line_fetch_address(addr2line_process, address):
++    try:
++        addr2line_process.stdin.write(address + '\n')
++        addr2line_process.stdin.flush()
++        addr2line_process.stdout.readline().strip()
++        output = addr2line_process.stdout.readline().strip()
++
++        return os.path.normpath(output)
++    except Exception as e:
++        raise Addr2LineError(f"Error communicating with addr2line: {str(e)}")
++
++# Determines whether a duplicate item requires an alias or not
++def process_line(obj, process_data_sym):
++    if process_data_sym:
++        return not (any(re.match(regex, obj.name) for regex in regex_filter))
++    else:
++        return (obj.type in {"T", "t"}) and (not (any(re.match(regex, obj.name) for regex in regex_filter)))
++
++# Reads a text file and retrieves its content
++def fetch_file_lines(filename):
++    try:
++        with open(filename, 'r') as file:
++            lines = [line.strip() for line in file.readlines()]
++        return lines
++    except FileNotFoundError:
++        raise FileNotFoundError(f"File not found: {filename}")
++
++# Runs the nm command on a specified file and returns its output as a list of strings
++def do_nm(filename, nm_executable):
++    try:
++        nm_output = subprocess.check_output([nm_executable, '-n', filename], universal_newlines=True, stderr=subprocess.STDOUT).splitlines()
++        return nm_output
++    except subprocess.CalledProcessError as e:
++        raise SystemExit(f"Script terminated due to an error {e}")
++
++# Accepts a Line object and a decoration string, then generates an argument to be used with objcopy for
++# adding an alias to the module's object file
++def make_objcpy_arg(obj, decoration, elf_section_names):
++    section = (
++        elf_section_names[".text"] if obj.type.upper() == "T" else (
++            elf_section_names[".data"] if obj.type.upper() == "D" else (
++                elf_section_names[".rodata"] if obj.type.upper() == "R" else ".bss"
++            )
++        )
++    )
++    flag = "global" if obj.type.isupper() else "local"
++
++    return f"--add-symbol {obj.name + decoration}={section}:0x{obj.address},{flag} "
++
++# Adds aliases to a given module's object file by executing objcopy
++def execute_objcopy(objcopy_executable, objcopy_args, object_file):
++    # Rename the original object file by adding a suffix
++    backup_file = object_file + '.bak'
++    os.rename(object_file, backup_file)
++
++    full_command = f"{objcopy_executable} {objcopy_args} {backup_file} {object_file}"
++
++    try:
++        subprocess.run(full_command, shell=True, check=True)
++    except subprocess.CalledProcessError as e:
++        print(f"Error executing objcopy: {e}")
++        os.rename(backup_file, object_file)
++        raise SystemExit("Script terminated due to an error")
++
++# Generates symbol decoration by querying addr2line
++def generate_decoration(obj, config, addr2line_process):
++    output = addr2line_fetch_address(addr2line_process, obj.address)
++    decoration = config.separator + "".join(
++        "_" if not c.isalnum() else c for c in output.replace(config.linux_base_dir, "")
++    )
++    # The addr2line can emit the special string "?:??" when addr2line can not find the
++    # specified address in the DWARF section that after normalization it becomes "____".
++    # In such cases, emitting an alias wouldn't make sense, so it is skipped.
++    if decoration != config.separator + "____":
++       return decoration
++    return ""
++
++# Retrieve the meaningful section names from the object header
++def get_section_names(objdump_executable, file_to_operate):
++    try:
++        output = subprocess.check_output([objdump_executable, '-h', file_to_operate], universal_newlines=True)
++
++        section_names = []
++        lines = output.strip().splitlines()
++        section_name_pattern = re.compile(r'^\s*\d+')
++        for line in lines:
++            if section_name_pattern.match(line):
++                parts = line.split()
++                if len(parts) >= 2:
++                    section_name = parts[1]
++                    section_names.append(section_name)
++
++        best_matches = [".text", ".rodata", ".data", ".bss"]
++        result = {}
++
++        for match in best_matches:
++            for section_name in section_names:
++                if section_name == match:
++                    result[match] = section_name
++                    break
++                if section_name.startswith(match + "."):
++                    result[match] = section_name
++                    break
++
++        return result
++
++    except subprocess.CalledProcessError as e:
++        print(f"Error executing objdump: {e}")
++        return {}
++
++# Creates a new module object file with added aliases in the ELF .symtab
++def produce_output_modules(config, symbol_list, name_occurrences, module_file_name, addr2line_process):
++    objcopy_args = "";
++    elf_section_names = get_section_names(config.objdump_file, module_file_name)
++    for obj in symbol_list:
++        if (name_occurrences[obj.name] > 1) and process_line(obj, config.process_data_sym):
++            decoration = generate_decoration(obj, config, addr2line_process)
++            if decoration != "":
++                objcopy_args = objcopy_args + make_objcpy_arg(obj, decoration, elf_section_names)
++
++    execute_objcopy(config.objcopy_file, objcopy_args, module_file_name)
++
++# Generates a new file containing nm data for vmlinux with the added aliases
++def produce_output_vmlinux(config, symbol_list, name_occurrences, addr2line_process):
++    with open(config.output_file, 'w') as output_file:
++        for obj in symbol_list:
++            output_file.write(f"{obj.address} {obj.type} {obj.name}\n")
++            if (name_occurrences[obj.name] > 1) and process_line(obj, config.process_data_sym):
++                decoration = generate_decoration(obj, config, addr2line_process)
++                if decoration != "":
++                    output_file.write(f"{obj.address} {obj.type} {obj.name + decoration}\n")
++
++if __name__ == "__main__":
++    # Handles command-line arguments and generates a config object
++    parser = argparse.ArgumentParser(description='Add alias to multiple occurring symbols name in kallsyms')
++    parser.add_argument('-a', "--addr2line", dest="addr2line_file", required=True)
++    parser.add_argument('-b', "--basedir", dest="linux_base_dir", required=True)
++    parser.add_argument('-c', "--objcopy", dest="objcopy_file", required=True)
++    parser.add_argument('-d', "--process_data", dest="process_data_sym", required=False, action='store_true')
++    parser.add_argument('-e', "--nm", dest="nm_file", required=True)
++    parser.add_argument('-m', "--modules_list", dest="module_list", required=True)
++    parser.add_argument('-n', "--nmdata", dest="nm_data_file", required=True)
++    parser.add_argument('-o', "--outfile", dest="output_file", required=True)
++    parser.add_argument('-s', "--separator", dest="separator", required=False, default="@", type=SeparatorType())
++    parser.add_argument('-u', "--objdump", dest="objdump_file", required=True)
++    parser.add_argument('-v', "--vmlinux", dest="vmlinux_file", required=True)
++    config = parser.parse_args()
++
++    try:
++        print("kas_alias: Start processing")
++
++        # Determine kernel source code base directory
++        config.linux_base_dir = os.path.normpath(os.getcwd() + "/" + config.linux_base_dir) + "/"
++
++        print("kas_alias: Process nm data from vmlinux")
++        # Process nm data from vmlinux
++        vmlinux_nm_lines = fetch_file_lines(config.nm_data_file)
++        vmlinux_symbol_list, name_occurrences = parse_nm_lines(vmlinux_nm_lines)
++
++        print("kas_alias: Process nm data for modules")
++        # Process nm data for modules
++        module_list = fetch_file_lines(config.module_list)
++        module_symbol_list = {}
++        for module in module_list:
++            module_nm_lines = do_nm(module, config.nm_file)
++            module_symbol_list[module], name_occurrences = parse_nm_lines(module_nm_lines, name_occurrences)
++
++        print("kas_alias: Produce file for vmlinux")
++        # Produce file for vmlinux
++        addr2line_process = start_addr2line_process(config.vmlinux_file, config.addr2line_file)
++        produce_output_vmlinux(config, vmlinux_symbol_list, name_occurrences, addr2line_process)
++        addr2line_process.stdin.close()
++        addr2line_process.stdout.close()
++        addr2line_process.stderr.close()
++        addr2line_process.wait()
++
++        # link-vmlinux.sh calls this two times: Avoid running kas_alias twice for efficiency and prevent duplicate aliases
++        #  in module processing by checking the last letter of the nm data file
++        if config.vmlinux_file and config.vmlinux_file[-1] == '2':
++            print("kas_alias: Add aliases to module files")
++            # Add aliases to module files
++            for module in module_list:
++                addr2line_process = start_addr2line_process(module, config.addr2line_file)
++                produce_output_modules(config, module_symbol_list[module], name_occurrences, module, addr2line_process)
++                addr2line_process.stdin.close()
++                addr2line_process.stdout.close()
++                addr2line_process.stderr.close()
++                addr2line_process.wait()
++        else:
++            print("kas_alias: Skip module processing if pass is not the second")
++
++
++    except Addr2LineError as e:
++        print(f"An error occurred in addr2line: {str(e)}")
++        raise SystemExit("Script terminated due to an error")
++    except Exception as e:
++        print(f"An error occurred: {str(e)}")
++        raise SystemExit("Script terminated due to an error")
+diff --git a/scripts/link-vmlinux.sh b/scripts/link-vmlinux.sh
+index a432b171be82..297dfde1a7e8 100755
+--- a/scripts/link-vmlinux.sh
++++ b/scripts/link-vmlinux.sh
+@@ -91,7 +91,12 @@ vmlinux_link()
+ 
+ 	# The kallsyms linking does not need debug symbols included.
+ 	if [ "$output" != "${output#.tmp_vmlinux.kallsyms}" ] ; then
+-		ldflags="${ldflags} ${wl}--strip-debug"
++		# The kallsyms linking does not need debug symbols included,
++		# unless the KALLSYMS_ALIAS_SRCLINE.
++		if ! is_enabled CONFIG_KALLSYMS_ALIAS_SRCLINE && \
++		   [ "$output" != "${output#.tmp_vmlinux.kallsyms}" ] ; then
++			ldflags="${ldflags} ${wl}--strip-debug"
++		fi
+ 	fi
+ 
+ 	if is_enabled CONFIG_VMLINUX_MAP; then
+@@ -161,7 +166,21 @@ kallsyms()
+ 	fi
+ 
+ 	info KSYMS ${2}
+-	scripts/kallsyms ${kallsymopt} ${1} > ${2}
++	ALIAS=""
++	KAS_DATA=""
++	if is_enabled CONFIG_KALLSYMS_ALIAS_SRCLINE_DATA; then
++		KAS_DATA="--data"
++	fi
++	if is_enabled CONFIG_KALLSYMS_ALIAS_SRCLINE; then
++		ALIAS=".alias"
++		${srctree}/scripts/kas_alias.py \
++			--addr2line ${ADDR2LINE} --vmlinux ${kallsyms_vmlinux} \
++			--nmdata ${1} --outfile ${1}${ALIAS} \
++			--modules_list modules.order --nm ${NM} \
++			--objdump ${OBJDUMP} --objcopy ${OBJCOPY} \
++			--basedir ${srctree} --separator @ ${KAS_DATA}
++	fi
++	scripts/kallsyms ${kallsymopt} ${1}${ALIAS} > ${2}
+ }
+ 
+ # Perform one step in kallsyms generation, including temporary linking of
+-- 
+2.34.1
+
