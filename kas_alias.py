@@ -6,7 +6,6 @@
 # kas_alias: Adds alias to duplicate symbols in the kallsyms output.
 
 import subprocess
-import sys
 import os
 import argparse
 import re
@@ -37,7 +36,8 @@ regex_filter = [
 class SeparatorType:
     def __call__(self, separator):
         if len(separator) != 1:
-            raise argparse.ArgumentTypeError("Separator must be a single character")
+            raise argparse.ArgumentTypeError(
+                    "Separator must be a single character")
         return separator
 
 class Addr2LineError(Exception):
@@ -45,9 +45,18 @@ class Addr2LineError(Exception):
 
 Line = namedtuple('Line', ['address', 'type', 'name'])
 
-# Parses a given nm output and returns the symbol list along with a hash of symbol occurrences
 def parse_nm_lines(lines, name_occurrences=None):
-
+    """
+    Parses a given nm output and returns the symbol list along with a hash of
+    symbol occurrences.
+    Args:
+      lines: List of tuples representing one nm line.
+      name_occurrences: Hash having the name as key, used to count names'
+                        occurrences.
+    Returns:
+      Creates a new line list proper for the nm output it parsed and, updates
+      the occurrences hash.
+  """
     if name_occurrences is None:
         name_occurrences = {}
 
@@ -63,20 +72,40 @@ def parse_nm_lines(lines, name_occurrences=None):
 
     return symbol_list, name_occurrences
 
-# Initializes an addr2line server process for the given ELF object
 def start_addr2line_process(binary_file, addr2line_file):
+    """
+    Initializes an addr2line server process operating on the given ELF object.
+    Args:
+      binary_file: String representing the binary file name object of addr2line
+                   queries.
+      addr2line_file: String representing the addr2line executable name.
+    Returns:
+      Returns addr2line process descriptor.
+    """
     try:
-        addr2line_process = subprocess.Popen([addr2line_file, '-fe', binary_file],
+        addr2line_process = subprocess.Popen([addr2line_file, '-fe',
+                                             binary_file],
                                              stdin=subprocess.PIPE,
                                              stdout=subprocess.PIPE,
                                              stderr=subprocess.PIPE,
                                              text=True)
         return addr2line_process
     except Exception as e:
-         raise Addr2LineError(f"Error starting addr2line process: {str(e)}")
+         raise SystemExit(f"Fatal: Can't start addr2line resolver: {e}")
 
-# Queries a specific address using the active addr2line process
+
 def addr2line_fetch_address(addr2line_process, address):
+    """
+    Queries a specific address using the active addr2line process.
+    Args:
+      addr2line_process: Descriptor of the addr2line process that is wanted to
+                         handle the query.
+      address: The address of the symbol that needs to be resolved.
+    Returns:
+      Returns a string representing the file and line number where the symbol
+      at the specified address has been defined. The address is normalized
+      before being returned.
+  """
     try:
         addr2line_process.stdin.write(address + '\n')
         addr2line_process.stdin.flush()
@@ -85,69 +114,134 @@ def addr2line_fetch_address(addr2line_process, address):
 
         return os.path.normpath(output)
     except Exception as e:
-        raise Addr2LineError(f"Error communicating with addr2line: {str(e)}")
+        raise SystemExit(
+                         "Fatal: Error communicating with"
+                         f" the addr2line resolver: {e}."
+                        )
 
-# Determines whether a duplicate item requires an alias or not
-def process_line(obj, process_data_sym):
+def process_line(line, process_data_sym):
+    """
+    Determines whether a duplicate item requires an alias or not.
+    Args:
+      line: nm line object that needs to be checked.
+      process_data_sym: Flag indicating that the script requires to produce alias
+                        also for data symbols.
+    Returns:
+      Returns true if the line needs to be processed, false otherwise.
+    """
     if process_data_sym:
-        return not (any(re.match(regex, obj.name) for regex in regex_filter))
+        return not (any(re.match(regex, line.name) for regex in regex_filter))
     else:
-        return (obj.type in {"T", "t"}) and (not (any(re.match(regex, obj.name) for regex in regex_filter)))
+        return (line.type in {"T", "t"}) and (
+                not (any(re.match(regex, line.name) for regex in regex_filter)))
 
-# Reads a text file and retrieves its content
 def fetch_file_lines(filename):
+    """
+    Reads a text file and retrieves its content.
+    Args:
+      filename: String representing the name of the file that needs to be read.
+    Returns:
+      Returns a string list representing the lines read in the file.
+    """
     try:
         with open(filename, 'r') as file:
-#            lines = file.readlines()
             lines = [line.strip() for line in file.readlines()]
         return lines
     except FileNotFoundError:
-        raise FileNotFoundError(f"File not found: {filename}")
+        raise SystemExit(f"Fatal: File not found: {filename}")
 
-# Runs the nm command on a specified file and returns its output as a list of strings
 def do_nm(filename, nm_executable):
+    """
+    Runs the nm command on a specified file.
+    Args:
+      filename: String representing the name of the file on which nm should
+      run against.
+      nm_executable: String representing the nm executable filename.
+    Returns:
+      Returns a strings list representing the nm output.
+    """
     try:
-        nm_output = subprocess.check_output([nm_executable, '-n', filename], universal_newlines=True, stderr=subprocess.STDOUT).splitlines()
+        nm_output = subprocess.check_output(
+                      [nm_executable, '-n', filename],
+                      universal_newlines=True,
+                      stderr=subprocess.STDOUT).splitlines()
         return nm_output
     except subprocess.CalledProcessError as e:
-        print(f"Error executing 'nm' command: {e.output}")
-        print(f"pwd={os.getcwd()}")
-        print(f"filename={filename}")
-        raise SystemExit("Script terminated due to an error")
+        raise SystemExit(f"Fatal: Error executing nm: {e}")
 
-# Accepts a Line object and a decoration string, then generates an argument to be used with objcopy for
-# adding an alias to the module's object file
-def make_objcpy_arg(obj, decoration, elf_section_names):
-#    section = elf_section_names[".text"] if obj.type.upper() == "T" else (elf_section_names[".data"] if obj.type.upper() == "D" else (elf_section_names[".rodata"] if obj.type.upper() == "R" else ".bss"))
+def make_objcpy_arg(line, decoration, elf_section_names):
+    """
+    Produces an objcopy argument statement for a single alias to be added in a
+    module.
+    Args:
+      line: nm line object target for this iteration.
+      decoration: String representing the decoration (normalized addr2line
+                  output) to be added at the symbol name to have the alias.
+      elf_section_names: List of the section names that can be used by objcopy
+                         to add a symbol to the ELF symbol table.
+    Returns:
+      Returns a string that directly maps the argument string objcopy should
+      use to add the alias.
+    """
     section = (
-        elf_section_names[".text"] if obj.type.upper() == "T" else (
-            elf_section_names[".data"] if obj.type.upper() == "D" else (
-                elf_section_names[".rodata"] if obj.type.upper() == "R" else ".bss"
+        elf_section_names[".text"] if line.type.upper() == "T" else (
+            elf_section_names[".data"] if line.type.upper() == "D" else (
+                elf_section_names[".rodata"] if line.type.upper() == "R" else ".bss"
             )
         )
     )
-    flag = "global" if obj.type.isupper() else "local"
+    flag = "global" if line.type.isupper() else "local"
 
-    return f"--add-symbol {obj.name + decoration}={section}:0x{obj.address},{flag} "
+    return (
+            "--add-symbol "
+            f"{line.name + decoration}={section}:0x{line.address},{flag} "
+           )
 
-# Adds aliases to a given module's object file by executing objcopy
 def execute_objcopy(objcopy_executable, objcopy_args, object_file):
+    """
+    Uses objcopy to add aliases to a given module object file.
+    Since objcopy can't operate in place, the original object file is renamed
+    before operating on it. At function end, a new object file having the old
+    object's name is carrying the aliases for the duplicate symbols.
+    Args:
+      objcopy_executable: String representing the object copy executable file.
+      objcopy_args: Arguments (aliases to add to the object file) to be used
+                    in the objcopy execution command line.
+      object_file: Target object file (module object file) against which objcopy is executed.
+    Returns:
+      Nothing is returned, but as a side effect of this function execution,
+      the module's object file contains the aliases for duplicated symbols.
+    """
     # Rename the original object file by adding a suffix
     backup_file = object_file + '.bak'
     os.rename(object_file, backup_file)
 
-    full_command = f"{objcopy_executable} {objcopy_args} {backup_file} {object_file}"
+    full_command = (
+                    f"{objcopy_executable} "
+                    f"{objcopy_args} {backup_file} {object_file}"
+                   )
 
     try:
         subprocess.run(full_command, shell=True, check=True)
     except subprocess.CalledProcessError as e:
-        print(f"Error executing objcopy: {e}")
         os.rename(backup_file, object_file)
-        raise SystemExit("Script terminated due to an error")
+        raise SystemExit(f"Fatal: Error executing objcopy: {e}")
 
-# Generates symbol decoration by querying addr2line
-def generate_decoration(obj, config, addr2line_process):
-    output = addr2line_fetch_address(addr2line_process, obj.address)
+def generate_decoration(line, config, addr2line_process):
+    """
+    Generates symbol decoration to be used to make the alias name, by
+    querying addr2line.
+    Args:
+      line: nm line object that needs an alias.
+      config: Object containing command line configuration.
+      addr2line_process: Descriptor of the addr2line process that serves
+                         the binary object where the symbol belongs.
+    Returns:
+      Returns a string representing the decoration for the given symbol,
+      or empty string if this can not be done. E.g., addr2line can't find
+      the point where the symbol is defined.
+    """
+    output = addr2line_fetch_address(addr2line_process, line.address)
     decoration = config.separator + "".join(
         "_" if not c.isalnum() else c for c in output.replace(config.linux_base_dir, "")
     )
@@ -158,10 +252,25 @@ def generate_decoration(obj, config, addr2line_process):
        return decoration
     return ""
 
-# retrive the meaningful section names from the object header
 def get_section_names(objdump_executable, file_to_operate):
+    """
+    objcopy needs to refer to a section name to assign the symbol type.
+    Unfortunately, not always all the section are present into a given
+    object file exist, for example, ".rodata" can not exist, and a [Rr]
+    symbol my refer to some other section e.g., ".rodata.str1".
+    For this reason this function tries to recover the exact names to use
+    in an objcopy statement.
+    Args:
+      objdump_executable: String representing the objdump executable.
+      file_to_operate: file whose section names are wanted.
+    Returns:
+      Returns a map containing four string indexed with typical section
+      names.
+    """
     try:
-        output = subprocess.check_output([objdump_executable, '-h', file_to_operate], universal_newlines=True)
+        output = subprocess.check_output(
+                   [objdump_executable, '-h', file_to_operate],
+                   universal_newlines=True)
 
         section_names = []
         lines = output.strip().splitlines()
@@ -188,11 +297,27 @@ def get_section_names(objdump_executable, file_to_operate):
         return result
 
     except subprocess.CalledProcessError as e:
-        print(f"Error executing objdump: {e}")
-        return {}
+        raise SystemExit(
+                         "Fatal: Can't find section names"
+                         f" for {file_to_operate}. Error: {e}"
+                        )
 
-# Creates a new module object file with added aliases in the ELF .symtab
-def produce_output_modules(config, symbol_list, name_occurrences, module_file_name, addr2line_process):
+def produce_output_modules(config, symbol_list, name_occurrences,
+                           module_file_name, addr2line_process):
+    """
+    Computes the alias addition on a given module object file.
+    Args:
+      config: Object containing command line configuration.
+      symbol_list: List of tuples representing nm lines for the given object
+                   file.
+      name_occurrences: Hash that stores symbol occurreces for the build.
+      module_file_name: String representing the target moule object file.
+      addr2line_process: Descriptor of the addr2line process that is wanted to
+                         handle the query.
+    Returns:
+      Nothing is returned, but as a side effect of this function execution,
+      the module's object file contains the aliases for duplicated symbols.
+    """
     objcopy_args = "";
     elf_section_names = get_section_names(config.objdump_file, module_file_name)
     for obj in symbol_list:
@@ -201,11 +326,22 @@ def produce_output_modules(config, symbol_list, name_occurrences, module_file_na
             if decoration != "":
                 objcopy_args = objcopy_args + make_objcpy_arg(obj, decoration, elf_section_names)
 
-    print(f"kas_alias: {config.objcopy_file} {objcopy_args} {module_file_name}.bak {module_file_name}")
     execute_objcopy(config.objcopy_file, objcopy_args, module_file_name)
 
-# Generates a new file containing nm data for vmlinux with the added aliases
 def produce_output_vmlinux(config, symbol_list, name_occurrences, addr2line_process):
+    """
+    Computes the alias addition for the core Linux on image.
+    Args:
+      config: Object containing command line configuration.
+      symbol_list: List of tuples representing nm lines for the given object
+                   file.
+      name_occurrences: Hash that stores symbol occurreces for the build.
+      addr2line_process: Descriptor of the addr2line process that is wanted to
+                         handle the query.
+    Returns:
+      Nothing is returned, but as a side effect of this function execution,
+      the core kernel image contains the aliases for duplicated symbols.
+    """
     with open(config.output_file, 'w') as output_file:
         for obj in symbol_list:
             output_file.write(f"{obj.address} {obj.type} {obj.name}\n")
@@ -213,16 +349,6 @@ def produce_output_vmlinux(config, symbol_list, name_occurrences, addr2line_proc
                 decoration = generate_decoration(obj, config, addr2line_process)
                 if decoration != "":
                     output_file.write(f"{obj.address} {obj.type} {obj.name + decoration}\n")
-
-# Copies a file using the sell
-def copy_file(source, destination):
-    copy_command = f"cp {source} {destination}"
-
-    try:
-        subprocess.check_output(copy_command, shell=True)
-    except subprocess.CalledProcessError:
-        print(f"Error copying {source_file} to {destination_file}.")
-        raise SystemExit("Script terminated due to an error")
 
 if __name__ == "__main__":
     # Handles command-line arguments and generates a config object
@@ -269,7 +395,7 @@ if __name__ == "__main__":
         addr2line_process.wait()
 
         # link-vmlinux.sh calls this two times: Avoid running kas_alias twice for efficiency and prevent duplicate aliases
-        #  in module processing by checking the last letter of the nm data file
+        # in module processing by checking the last letter of the nm data file
         if config.vmlinux_file and config.vmlinux_file[-1] == '2':
             print("kas_alias: Add aliases to module files")
             # Add aliases to module files
@@ -281,12 +407,8 @@ if __name__ == "__main__":
                 addr2line_process.stderr.close()
                 addr2line_process.wait()
         else:
-            print("kas_alias: Skip module processing if pass is different from second")
+            print("kas_alias: Skip module processing if pass is not the second")
 
 
-    except Addr2LineError as e:
-        print(f"An error occurred in addr2line: {str(e)}")
-        raise SystemExit("Script terminated due to an error")
     except Exception as e:
-        print(f"An error occurred: {str(e)}")
-        raise SystemExit("Script terminated due to an error")
+        raise SystemExit(f"Script terminated due to an error: {e}")
