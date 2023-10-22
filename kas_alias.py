@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-2.0-only
 #
-# Copyright (C) 2023 Red Hat, Inc. Alessandro Carminati <alessandro.carminati@gmail.com>
+# Copyright (C) 2023 Red Hat, Inc.
+# Alessandro Carminati <alessandro.carminati@gmail.com>
 #
-# kas_alias: Adds alias to duplicate symbols in the kallsyms output.
+# kas_alias: Adds alias to duplicate symbols for the kallsyms output.
 
 import subprocess
 import os
