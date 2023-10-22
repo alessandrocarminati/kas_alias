@@ -188,6 +188,28 @@ def do_nm(filename, nm_executable):
     Returns:
       Returns a strings list representing the nm output.
     """
+    # Later, during processing, objcopy cannot modify files in place when
+    # adding new alias symbols. It requires a source file and a destination
+    # file.
+    # After this operation, there is an object file ".o" with the aliases and
+    # a ".k{0,1}o.orig" file, which is the old intended object and serves as the
+    # source for objcopy.
+    # In a fresh build, the state is just fine.
+    # However, in a second build without clean, an issue arises.
+    # The ".k{0,1}o" file already contain the alias, and reprocessing it, do
+    # corrupt the final result. To address this, do_nm must check if the file
+    # ".k{0,1}o.orig" already exists.
+    # If it does, that's the target for nm and must be renamed in ".k{0,1}o"
+    # to restore the intended state. If not, it's a fresh build, and nm can
+    # proceed with the ".k{0,1}o" file.
+    backup_file = filename + '.orig'
+    if os.path.exists(backup_file):
+        print(f"do_nm: {filename} is not clean, restore {backup_file} to {filename}")
+        os.rename(backup_file, filename)
+
+    if debug >= DebugLevel.DEBUG_BASIC.value:
+       print(f"do_nm: executing {nm_executable} -n {filename}")
+
     try:
         nm_output = subprocess.check_output(
                       [nm_executable, '-n', filename],
@@ -241,7 +263,10 @@ def execute_objcopy(objcopy_executable, objcopy_args, object_file):
       the module's object file contains the aliases for duplicated symbols.
     """
     # Rename the original object file by adding a suffix
-    backup_file = object_file + '.bak'
+    backup_file = object_file + '.orig'
+    if debug >= DebugLevel.DEBUG_MODULES.value:
+       print("execute_objcopy: "
+             f"rename {object_file} to {backup_file}")
     os.rename(object_file, backup_file)
 
     full_command = (
