@@ -353,16 +353,16 @@ def get_section_names(objdump_executable, file_to_operate):
 
         for match in best_matches:
             for section_name in section_names:
-                if section_name == match:
+                if re.match(match+".*", section_name):
                     result[match] = section_name
-                    break
-                if section_name.startswith(match + "."):
-                    result[match] = section_name
-                    break
+
+        if debug >= DebugLevel.DEBUG_MODULES.value:
+            for key, value in result.items():
+                print(f"get_section_names: sections {key} = {value}")
 
         return result
 
-    except subprocess.CalledProcessError as e:
+    except Exception as e:
         raise SystemExit(
                          "Fatal: Can't find section names"
                          f" for {file_to_operate}. Error: {e}"
