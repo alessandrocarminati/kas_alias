@@ -31,8 +31,10 @@ regex_filter = [
         "^__pfx_.*$",
         "^__cfi_.*$",
         "^\\.LC[0-9]+$",
-        "^__UNIQUE_ID___.*$",
-        "^symbols\\.[0-9]+$"
+        "^\\.L[0-9]+.[0-9]+$",
+        "^__UNIQUE_ID_.*$",
+        "^symbols\\.[0-9]+$",
+        "^_note_[0-9]+$"
         ]
 
 class SeparatorType:
