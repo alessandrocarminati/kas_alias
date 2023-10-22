@@ -6,10 +6,11 @@
 #
 # kas_alias: Adds alias to duplicate symbols for the kallsyms output.
 
-import subprocess
 import os
-import argparse
 import re
+import argparse
+import subprocess
+from enum import Enum
 from collections import namedtuple
 
 # Regex representing symbols that needs no alias
