@@ -233,19 +233,30 @@ def make_objcpy_arg(line, decoration, elf_section_names):
       Returns a string that directly maps the argument string objcopy should
       use to add the alias.
     """
-    section = (
-        elf_section_names[".text"] if line.type.upper() == "T" else (
-            elf_section_names[".data"] if line.type.upper() == "D" else (
-                elf_section_names[".rodata"] if line.type.upper() == "R" else ".bss"
+    try:
+        section = (
+            elf_section_names[".text"] if line.type.upper() == "T" else (
+                elf_section_names[".data"] if line.type.upper() == "D" else (
+                    elf_section_names[".rodata"] if line.type.upper() == "R" else ".bss"
+                )
             )
         )
-    )
-    flag = "global" if line.type.isupper() else "local"
+        flag = "global" if line.type.isupper() else "local"
 
-    return (
-            "--add-symbol "
-            f"{line.name + decoration}={section}:0x{line.address},{flag} "
-           )
+        if debug >= DebugLevel.DEBUG_MODULES.value:
+           print("make_objcpy_arg: "
+                 f"{line.name + decoration}={section}:0x{line.address},{flag}")
+
+
+        return (
+                "--add-symbol "
+                f"{line.name + decoration}={section}:0x{line.address},{flag} "
+               )
+    except Exception:
+        print(
+              f"make_objcpy_arg warning: Skip alias for {line.name}"
+              f" type {line.type} because no corresponding section found.")
+        return ""
 
 def execute_objcopy(objcopy_executable, objcopy_args, object_file):
     """
