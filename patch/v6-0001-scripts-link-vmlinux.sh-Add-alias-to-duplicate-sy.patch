@@ -1,4 +1,4 @@
-From 7e738b466b970a03a1e661d192ddcbd8517191f0 Mon Sep 17 00:00:00 2001
+From c11104484b30a0e43c94d62d8edcec5a526344c9 Mon Sep 17 00:00:00 2001
 From: "Alessandro Carminati (Red Hat)" <alessandro.carminati@gmail.com>
 Date: Sat, 9 Sep 2023 08:50:39 +0000
 Subject: [PATCH v6] scripts/link-vmlinux.sh: Add alias to duplicate symbols
@@ -131,10 +131,10 @@ comments or feedback regarding this matter.
 Signed-off-by: Alessandro Carminati (Red Hat) <alessandro.carminati@gmail.com>
 ---
  Makefile                |   4 +-
- init/Kconfig            |  22 +++
- scripts/kas_alias.py    | 414 ++++++++++++++++++++++++++++++++++++++++
- scripts/link-vmlinux.sh |  23 ++-
- 4 files changed, 460 insertions(+), 3 deletions(-)
+ init/Kconfig            |  22 ++
+ scripts/kas_alias.py    | 527 ++++++++++++++++++++++++++++++++++++++++
+ scripts/link-vmlinux.sh |  23 +-
+ 4 files changed, 573 insertions(+), 3 deletions(-)
  create mode 100755 scripts/kas_alias.py
 
 diff --git a/Makefile b/Makefile
@@ -201,21 +201,23 @@ index 6d35728b94b2..d45dd423e1ec 100644
  # syscall, maps, verifier
 diff --git a/scripts/kas_alias.py b/scripts/kas_alias.py
 new file mode 100755
-index 000000000000..e156bbeac79e
+index 000000000000..f68cdecdcf6c
 --- /dev/null
 +++ b/scripts/kas_alias.py
-@@ -0,0 +1,414 @@
+@@ -0,0 +1,527 @@
 +#!/usr/bin/env python3
 +# SPDX-License-Identifier: GPL-2.0-only
 +#
-+# Copyright (C) 2023 Red Hat, Inc. Alessandro Carminati <alessandro.carminati@gmail.com>
++# Copyright (C) 2023 Red Hat, Inc.
++# Alessandro Carminati <alessandro.carminati@gmail.com>
 +#
-+# kas_alias: Adds alias to duplicate symbols in the kallsyms output.
++# kas_alias: Adds alias to duplicate symbols for the kallsyms output.
 +
-+import subprocess
 +import os
-+import argparse
 +import re
++import argparse
++import subprocess
++from enum import Enum
 +from collections import namedtuple
 +
 +# Regex representing symbols that needs no alias
@@ -236,9 +238,18 @@ index 000000000000..e156bbeac79e
 +        "^__pfx_.*$",
 +        "^__cfi_.*$",
 +        "^\\.LC[0-9]+$",
-+        "^__UNIQUE_ID___.*$",
-+        "^symbols\\.[0-9]+$"
++        "^\\.L[0-9]+.[0-9]+$",
++        "^__UNIQUE_ID_.*$",
++        "^symbols\\.[0-9]+$",
++        "^_note_[0-9]+$"
 +        ]
++
++class DebugLevel(Enum):
++    PRODUCTION = 0
++    INFO = 1
++    DEBUG_BASIC = 2
++    DEBUG_MODULES = 3
++    DEBUG_ALL = 4
 +
 +class SeparatorType:
 +    def __call__(self, separator):
@@ -249,6 +260,8 @@ index 000000000000..e156bbeac79e
 +
 +class Addr2LineError(Exception):
 +    pass
++
++debug = DebugLevel.PRODUCTION
 +
 +Line = namedtuple('Line', ['address', 'type', 'name'])
 +
@@ -264,6 +277,9 @@ index 000000000000..e156bbeac79e
 +      Creates a new line list proper for the nm output it parsed and, updates
 +      the occurrences hash.
 +  """
++    if debug >= DebugLevel.DEBUG_BASIC.value:
++       print("parse_nm_lines: parse start")
++
 +    if name_occurrences is None:
 +        name_occurrences = {}
 +
@@ -289,6 +305,9 @@ index 000000000000..e156bbeac79e
 +    Returns:
 +      Returns addr2line process descriptor.
 +    """
++    if debug >= DebugLevel.DEBUG_BASIC.value:
++       print(f"start_addr2line_process: Startin addr2line process on {binary_file}")
++
 +    try:
 +        addr2line_process = subprocess.Popen([addr2line_file, '-fe',
 +                                             binary_file],
@@ -313,6 +332,9 @@ index 000000000000..e156bbeac79e
 +      at the specified address has been defined. The address is normalized
 +      before being returned.
 +  """
++    if debug >= DebugLevel.DEBUG_ALL.value:
++       print(f"addr2line_fetch_address: Resolving {address}")
++
 +    try:
 +        addr2line_process.stdin.write(address + '\n')
 +        addr2line_process.stdin.flush()
@@ -336,6 +358,9 @@ index 000000000000..e156bbeac79e
 +    Returns:
 +      Returns true if the line needs to be processed, false otherwise.
 +    """
++    if debug >= DebugLevel.DEBUG_ALL.value:
++       print(f"process_line: Processing {line.address} {line.type} {line.name}")
++
 +    if process_data_sym:
 +        return not (any(re.match(regex, line.name) for regex in regex_filter))
 +    else:
@@ -350,6 +375,9 @@ index 000000000000..e156bbeac79e
 +    Returns:
 +      Returns a string list representing the lines read in the file.
 +    """
++    if debug >= DebugLevel.DEBUG_BASIC.value:
++       print(f"fetch_file_lines: Fetch {filename}")
++
 +    try:
 +        with open(filename, 'r') as file:
 +            lines = [line.strip() for line in file.readlines()]
@@ -367,6 +395,28 @@ index 000000000000..e156bbeac79e
 +    Returns:
 +      Returns a strings list representing the nm output.
 +    """
++    # Later, during processing, objcopy cannot modify files in place when
++    # adding new alias symbols. It requires a source file and a destination
++    # file.
++    # After this operation, there is an object file ".o" with the aliases and
++    # a ".k{0,1}o.orig" file, which is the old intended object and serves as the
++    # source for objcopy.
++    # In a fresh build, the state is just fine.
++    # However, in a second build without clean, an issue arises.
++    # The ".k{0,1}o" file already contain the alias, and reprocessing it, do
++    # corrupt the final result. To address this, do_nm must check if the file
++    # ".k{0,1}o.orig" already exists.
++    # If it does, that's the target for nm and must be renamed in ".k{0,1}o"
++    # to restore the intended state. If not, it's a fresh build, and nm can
++    # proceed with the ".k{0,1}o" file.
++    backup_file = filename + '.orig'
++    if os.path.exists(backup_file):
++        print(f"do_nm: {filename} is not clean, restore {backup_file} to {filename}")
++        os.rename(backup_file, filename)
++
++    if debug >= DebugLevel.DEBUG_BASIC.value:
++       print(f"do_nm: executing {nm_executable} -n {filename}")
++
 +    try:
 +        nm_output = subprocess.check_output(
 +                      [nm_executable, '-n', filename],
@@ -390,19 +440,30 @@ index 000000000000..e156bbeac79e
 +      Returns a string that directly maps the argument string objcopy should
 +      use to add the alias.
 +    """
-+    section = (
-+        elf_section_names[".text"] if line.type.upper() == "T" else (
-+            elf_section_names[".data"] if line.type.upper() == "D" else (
-+                elf_section_names[".rodata"] if line.type.upper() == "R" else ".bss"
++    try:
++        section = (
++            elf_section_names[".text"] if line.type.upper() == "T" else (
++                elf_section_names[".data"] if line.type.upper() == "D" else (
++                    elf_section_names[".rodata"] if line.type.upper() == "R" else ".bss"
++                )
 +            )
 +        )
-+    )
-+    flag = "global" if line.type.isupper() else "local"
++        flag = "global" if line.type.isupper() else "local"
 +
-+    return (
-+            "--add-symbol "
-+            f"{line.name + decoration}={section}:0x{line.address},{flag} "
-+           )
++        if debug >= DebugLevel.DEBUG_MODULES.value:
++           print("make_objcpy_arg: "
++                 f"{line.name + decoration}={section}:0x{line.address},{flag}")
++
++
++        return (
++                "--add-symbol "
++                f"{line.name + decoration}={section}:0x{line.address},{flag} "
++               )
++    except Exception:
++        print(
++              f"make_objcpy_arg warning: Skip alias for {line.name}"
++              f" type {line.type} because no corresponding section found.")
++        return ""
 +
 +def execute_objcopy(objcopy_executable, objcopy_args, object_file):
 +    """
@@ -420,13 +481,18 @@ index 000000000000..e156bbeac79e
 +      the module's object file contains the aliases for duplicated symbols.
 +    """
 +    # Rename the original object file by adding a suffix
-+    backup_file = object_file + '.bak'
++    backup_file = object_file + '.orig'
++    if debug >= DebugLevel.DEBUG_MODULES.value:
++       print("execute_objcopy: "
++             f"rename {object_file} to {backup_file}")
 +    os.rename(object_file, backup_file)
 +
 +    full_command = (
 +                    f"{objcopy_executable} "
 +                    f"{objcopy_args} {backup_file} {object_file}"
 +                   )
++    if debug >= DebugLevel.DEBUG_MODULES.value:
++       print(f"execute_objcopy: executing {full_command}")
 +
 +    try:
 +        subprocess.run(full_command, shell=True, check=True)
@@ -494,16 +560,16 @@ index 000000000000..e156bbeac79e
 +
 +        for match in best_matches:
 +            for section_name in section_names:
-+                if section_name == match:
++                if re.match(match+".*", section_name):
 +                    result[match] = section_name
-+                    break
-+                if section_name.startswith(match + "."):
-+                    result[match] = section_name
-+                    break
++
++        if debug >= DebugLevel.DEBUG_MODULES.value:
++            for key, value in result.items():
++                print(f"get_section_names: sections {key} = {value}")
 +
 +        return result
 +
-+    except subprocess.CalledProcessError as e:
++    except Exception as e:
 +        raise SystemExit(
 +                         "Fatal: Can't find section names"
 +                         f" for {file_to_operate}. Error: {e}"
@@ -526,12 +592,18 @@ index 000000000000..e156bbeac79e
 +      the module's object file contains the aliases for duplicated symbols.
 +    """
 +    objcopy_args = "";
++    args_cnt = 0
 +    elf_section_names = get_section_names(config.objdump_file, module_file_name)
 +    for obj in symbol_list:
 +        if (name_occurrences[obj.name] > 1) and process_line(obj, config.process_data_sym):
 +            decoration = generate_decoration(obj, config, addr2line_process)
 +            if decoration != "":
 +                objcopy_args = objcopy_args + make_objcpy_arg(obj, decoration, elf_section_names)
++                args_cnt = args_cnt + 1
++                if args_cnt > 50:
++                   execute_objcopy(config.objcopy_file, objcopy_args, module_file_name)
++                   args_cnt = 0
++                   objcopy_args = ""
 +
 +    execute_objcopy(config.objcopy_file, objcopy_args, module_file_name)
 +
@@ -557,42 +629,80 @@ index 000000000000..e156bbeac79e
 +                if decoration != "":
 +                    output_file.write(f"{obj.address} {obj.type} {obj.name + decoration}\n")
 +
++def check_ko(files):
++    """
++    Updates the list of module files kas_alias needs to add aliases. If at the time kas_alias
++    is called, .ko files already exists, kas_alias needs to operate on them.
++    Args:
++      files: List of files (modules.order file contents)
++    Returns:
++      Returns the updated list.
++    """
++    modified_list = []
++
++    for o_file in files:
++        ko_file = o_file.replace(".o", ".ko")
++
++        if os.path.exists(ko_file):
++            modified_list.append(ko_file)
++        else:
++            modified_list.append(o_file)
++
++    return modified_list
++
 +if __name__ == "__main__":
 +    # Handles command-line arguments and generates a config object
 +    parser = argparse.ArgumentParser(description='Add alias to multiple occurring symbols name in kallsyms')
-+    parser.add_argument('-a', "--addr2line", dest="addr2line_file", required=True)
-+    parser.add_argument('-b', "--basedir", dest="linux_base_dir", required=True)
-+    parser.add_argument('-c', "--objcopy", dest="objcopy_file", required=True)
-+    parser.add_argument('-d', "--process_data", dest="process_data_sym", required=False, action='store_true')
-+    parser.add_argument('-e', "--nm", dest="nm_file", required=True)
-+    parser.add_argument('-m', "--modules_list", dest="module_list", required=True)
-+    parser.add_argument('-n', "--nmdata", dest="nm_data_file", required=True)
-+    parser.add_argument('-o', "--outfile", dest="output_file", required=True)
-+    parser.add_argument('-s', "--separator", dest="separator", required=False, default="@", type=SeparatorType())
-+    parser.add_argument('-u', "--objdump", dest="objdump_file", required=True)
-+    parser.add_argument('-v', "--vmlinux", dest="vmlinux_file", required=True)
++    parser.add_argument('-a', "--addr2line", dest="addr2line_file", required=True, help="Set the addr2line executable to be used.")
++    parser.add_argument('-b', "--basedir", dest="linux_base_dir", required=True, help="Set base directory of the source kernel code.")
++    parser.add_argument('-c', "--objcopy", dest="objcopy_file", required=True, help="Set the objcopy executable to be used.")
++    parser.add_argument('-d', "--process_data", dest="process_data_sym", required=False, help="Requires the tool to process data symbols along with text symbols.", action='store_true')
++    parser.add_argument('-e', "--nm", dest="nm_file", required=True, help="Set the nm executable to be used.")
++    parser.add_argument('-m', "--modules_list", dest="module_list", required=True, help="Set the file containing the list of the modules object files.")
++    parser.add_argument('-n', "--nmdata", dest="nm_data_file", required=True, help="Set vmlinux nm output file to use for core image.")
++    parser.add_argument('-o', "--outfile", dest="output_file", required=True, help="Set the vmlinux nm output file containing aliases.")
++    parser.add_argument('-s', "--separator", dest="separator", required=False, help="Set separator, character that separates original name from the addr2line data in alias symbols.", default="@", type=SeparatorType())
++    parser.add_argument('-u', "--objdump", dest="objdump_file", required=True, help="Set objdump  executable to be used.")
++    parser.add_argument('-v', "--vmlinux", dest="vmlinux_file", required=True, help="Set the vmlinux core image file.")
++    parser.add_argument('-z', "--debug", dest="debug", required=False, help="Set the debug level.", choices=[f"{level.value}" for level in DebugLevel], default="1" )
 +    config = parser.parse_args()
++    debug = int(config.debug)
 +
 +    try:
-+        print("kas_alias: Start processing")
++        if debug >= DebugLevel.INFO.value:
++            print("kas_alias: Start processing")
 +
 +        # Determine kernel source code base directory
 +        config.linux_base_dir = os.path.normpath(os.getcwd() + "/" + config.linux_base_dir) + "/"
 +
-+        print("kas_alias: Process nm data from vmlinux")
++        if debug >= DebugLevel.INFO.value:
++            print("kas_alias: Process nm data from vmlinux")
++
 +        # Process nm data from vmlinux
 +        vmlinux_nm_lines = fetch_file_lines(config.nm_data_file)
 +        vmlinux_symbol_list, name_occurrences = parse_nm_lines(vmlinux_nm_lines)
 +
-+        print("kas_alias: Process nm data for modules")
++        if debug >= DebugLevel.INFO.value:
++            print("kas_alias: Process nm data for modules")
++
 +        # Process nm data for modules
 +        module_list = fetch_file_lines(config.module_list)
++        # Configuration items determine whether, at the time kas_alias is
++        # called, the linked and ready-to-use modules in .ko format already
++        # exist or not.
++        # Because of this, kas_alias needs to verify if any given .ko module
++        # exists before proceeding.
++        # If the .ko module exists, it should insert aliases into it;
++        # otherwise, it should continue with the corresponding .o file.
++        module_list = check_ko(module_list)
 +        module_symbol_list = {}
 +        for module in module_list:
 +            module_nm_lines = do_nm(module, config.nm_file)
 +            module_symbol_list[module], name_occurrences = parse_nm_lines(module_nm_lines, name_occurrences)
 +
-+        print("kas_alias: Produce file for vmlinux")
++        if debug >= DebugLevel.INFO.value:
++            print("kas_alias: Produce file for vmlinux")
++
 +        # Produce file for vmlinux
 +        addr2line_process = start_addr2line_process(config.vmlinux_file, config.addr2line_file)
 +        produce_output_vmlinux(config, vmlinux_symbol_list, name_occurrences, addr2line_process)
@@ -604,7 +714,9 @@ index 000000000000..e156bbeac79e
 +        # link-vmlinux.sh calls this two times: Avoid running kas_alias twice for efficiency and prevent duplicate aliases
 +        # in module processing by checking the last letter of the nm data file
 +        if config.vmlinux_file and config.vmlinux_file[-1] == '2':
-+            print("kas_alias: Add aliases to module files")
++            if debug >= DebugLevel.INFO.value:
++                print("kas_alias: Add aliases to module files")
++
 +            # Add aliases to module files
 +            for module in module_list:
 +                addr2line_process = start_addr2line_process(module, config.addr2line_file)
@@ -614,13 +726,14 @@ index 000000000000..e156bbeac79e
 +                addr2line_process.stderr.close()
 +                addr2line_process.wait()
 +        else:
-+            print("kas_alias: Skip module processing if pass is not the second")
++            if debug >= DebugLevel.INFO.value:
++                print("kas_alias: Skip module processing if pass is not the second")
 +
 +
 +    except Exception as e:
 +        raise SystemExit(f"Script terminated due to an error: {e}")
 diff --git a/scripts/link-vmlinux.sh b/scripts/link-vmlinux.sh
-index a432b171be82..a879942b54cd 100755
+index a432b171be82..4a6381e1ee65 100755
 --- a/scripts/link-vmlinux.sh
 +++ b/scripts/link-vmlinux.sh
 @@ -91,7 +91,12 @@ vmlinux_link()
@@ -652,7 +765,7 @@ index a432b171be82..a879942b54cd 100755
 +		${srctree}/scripts/kas_alias.py \
 +			--addr2line ${ADDR2LINE} --vmlinux ${kallsyms_vmlinux} \
 +			--nmdata ${1} --outfile ${1}${ALIAS} \
-+			--modules_list modules.order --nm ${NM} \
++			--modules_list ${MODORDER} --nm ${NM} --debug ${KAS_ALIAS_DEBUG:-0}\
 +			--objdump ${OBJDUMP} --objcopy ${OBJCOPY} \
 +			--basedir ${srctree} --separator @ ${KAS_DATA}
 +	fi
