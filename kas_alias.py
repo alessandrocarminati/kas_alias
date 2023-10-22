@@ -422,6 +422,27 @@ def produce_output_vmlinux(config, symbol_list, name_occurrences, addr2line_proc
                 if decoration != "":
                     output_file.write(f"{obj.address} {obj.type} {obj.name + decoration}\n")
 
+def check_ko(files):
+    """
+    Updates the list of module files kas_alias needs to add aliases. If at the time kas_alias
+    is called, .ko files already exists, kas_alias needs to operate on them.
+    Args:
+      files: List of files (modules.order file contents)
+    Returns:
+      Returns the updated list.
+    """
+    modified_list = []
+
+    for o_file in files:
+        ko_file = o_file.replace(".o", ".ko")
+
+        if os.path.exists(ko_file):
+            modified_list.append(ko_file)
+        else:
+            modified_list.append(o_file)
+
+    return modified_list
+
 if __name__ == "__main__":
     # Handles command-line arguments and generates a config object
     parser = argparse.ArgumentParser(description='Add alias to multiple occurring symbols name in kallsyms')
@@ -459,6 +480,14 @@ if __name__ == "__main__":
 
         # Process nm data for modules
         module_list = fetch_file_lines(config.module_list)
+        # Configuration items determine whether, at the time kas_alias is
+        # called, the linked and ready-to-use modules in .ko format already
+        # exist or not.
+        # Because of this, kas_alias needs to verify if any given .ko module
+        # exists before proceeding.
+        # If the .ko module exists, it should insert aliases into it;
+        # otherwise, it should continue with the corresponding .o file.
+        module_list = check_ko(module_list)
         module_symbol_list = {}
         for module in module_list:
             module_nm_lines = do_nm(module, config.nm_file)
