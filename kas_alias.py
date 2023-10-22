@@ -385,12 +385,18 @@ def produce_output_modules(config, symbol_list, name_occurrences,
       the module's object file contains the aliases for duplicated symbols.
     """
     objcopy_args = "";
+    args_cnt = 0
     elf_section_names = get_section_names(config.objdump_file, module_file_name)
     for obj in symbol_list:
         if (name_occurrences[obj.name] > 1) and process_line(obj, config.process_data_sym):
             decoration = generate_decoration(obj, config, addr2line_process)
             if decoration != "":
                 objcopy_args = objcopy_args + make_objcpy_arg(obj, decoration, elf_section_names)
+                args_cnt = args_cnt + 1
+                if args_cnt > 50:
+                   execute_objcopy(config.objcopy_file, objcopy_args, module_file_name)
+                   args_cnt = 0
+                   objcopy_args = ""
 
     execute_objcopy(config.objcopy_file, objcopy_args, module_file_name)
 
