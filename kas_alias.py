@@ -398,6 +398,8 @@ def produce_output_modules(config, symbol_list, name_occurrences,
                 objcopy_args = objcopy_args + make_objcpy_arg(obj, decoration, elf_section_names)
                 args_cnt = args_cnt + 1
                 if args_cnt > 50:
+                   if debug >= DebugLevel.DEBUG_MODULES.value:
+                      print("Produce_output_modules: Number of arguments high, split objcopy call into multiple statements.")
                    execute_objcopy(config.objcopy_file, objcopy_args, module_file_name)
                    args_cnt = 0
                    objcopy_args = ""
