@@ -1,4 +1,4 @@
-From c11104484b30a0e43c94d62d8edcec5a526344c9 Mon Sep 17 00:00:00 2001
+From 40d78c520b404817ec0626d333ffb201dca31110 Mon Sep 17 00:00:00 2001
 From: "Alessandro Carminati (Red Hat)" <alessandro.carminati@gmail.com>
 Date: Sat, 9 Sep 2023 08:50:39 +0000
 Subject: [PATCH v6] scripts/link-vmlinux.sh: Add alias to duplicate symbols
@@ -130,15 +130,16 @@ comments or feedback regarding this matter.
 
 Signed-off-by: Alessandro Carminati (Red Hat) <alessandro.carminati@gmail.com>
 ---
- Makefile                |   4 +-
- init/Kconfig            |  22 ++
- scripts/kas_alias.py    | 527 ++++++++++++++++++++++++++++++++++++++++
- scripts/link-vmlinux.sh |  23 +-
- 4 files changed, 573 insertions(+), 3 deletions(-)
+ Makefile                  |  14 +-
+ init/Kconfig              |  22 ++
+ scripts/Makefile.modfinal |  10 +-
+ scripts/kas_alias.py      | 504 ++++++++++++++++++++++++++++++++++++++
+ scripts/link-vmlinux.sh   |  26 +-
+ 5 files changed, 572 insertions(+), 4 deletions(-)
  create mode 100755 scripts/kas_alias.py
 
 diff --git a/Makefile b/Makefile
-index 4f283d915e54..f33c179f4cc3 100644
+index 4f283d915e54..f2c51340fa52 100644
 --- a/Makefile
 +++ b/Makefile
 @@ -488,6 +488,7 @@ OBJCOPY		= $(LLVM_PREFIX)llvm-objcopy$(LLVM_SUFFIX)
@@ -166,6 +167,23 @@ index 4f283d915e54..f33c179f4cc3 100644
  export PERL PYTHON3 CHECK CHECKFLAGS MAKE UTS_MACHINE HOSTCXX
  export KGZIP KBZIP2 KLZOP LZMA LZ4 XZ ZSTD
  export KBUILD_HOSTCXXFLAGS KBUILD_HOSTLDFLAGS KBUILD_HOSTLDLIBS LDFLAGS_MODULE
+@@ -1542,6 +1544,16 @@ KBUILD_BUILTIN := 1
+ modules: vmlinux
+ endif
+ 
++# *.ko are usually independent of vmlinux, but CONFIG_KALLSYMS_ALIAS_SRCLINE
++# is another exception.
++# At the time when vmlinux is being linked, kas_alias operates on both vmlinux
++# and modules. To prevent races with modules, kas_alias needs to pause operations
++# while it is executed.
++ifdef CONFIG_KALLSYMS_ALIAS_SRCLINE
++KBUILD_BUILTIN := 1
++modules: vmlinux
++endif
++
+ modules: modules_prepare
+ 
+ # Target to prepare building external modules
 diff --git a/init/Kconfig b/init/Kconfig
 index 6d35728b94b2..d45dd423e1ec 100644
 --- a/init/Kconfig
@@ -199,17 +217,44 @@ index 6d35728b94b2..d45dd423e1ec 100644
  # end of the "standard kernel features (expert users)" menu
  
  # syscall, maps, verifier
+diff --git a/scripts/Makefile.modfinal b/scripts/Makefile.modfinal
+index b3a6aa8fbe8c..3d9756a6eb3e 100644
+--- a/scripts/Makefile.modfinal
++++ b/scripts/Makefile.modfinal
+@@ -15,6 +15,14 @@ include $(srctree)/scripts/Makefile.lib
+ # find all modules listed in modules.order
+ modules := $(call read-file, $(MODORDER))
+ 
++ifeq ($(KBUILD_BUILTIN),y)
++  ifeq ($(or $(CONFIG_DEBUG_INFO_BTF_MODULES),$(CONFIG_KALLSYMS_ALIAS_SRCLINE)),y)
++    VMLINUX_DEP := vmlinux
++  endif
++endif
++
++VMLINUX_DEP ?=
++
+ __modfinal: $(modules:%.o=%.ko)
+ 	@:
+ 
+@@ -55,7 +63,7 @@ if_changed_except = $(if $(call newer_prereqs_except,$(2))$(cmd-check),      \
+ 	printf '%s\n' 'savedcmd_$@ := $(make-cmd)' > $(dot-target).cmd, @:)
+ 
+ # Re-generate module BTFs if either module's .ko or vmlinux changed
+-%.ko: %.o %.mod.o scripts/module.lds $(and $(CONFIG_DEBUG_INFO_BTF_MODULES),$(KBUILD_BUILTIN),vmlinux) FORCE
++%.ko: %.o %.mod.o scripts/module.lds $(VMLINUX_DEP) FORCE
+ 	+$(call if_changed_except,ld_ko_o,vmlinux)
+ ifdef CONFIG_DEBUG_INFO_BTF_MODULES
+ 	+$(if $(newer-prereqs),$(call cmd,btf_ko))
 diff --git a/scripts/kas_alias.py b/scripts/kas_alias.py
 new file mode 100755
-index 000000000000..f68cdecdcf6c
+index 000000000000..3829cccd9aca
 --- /dev/null
 +++ b/scripts/kas_alias.py
-@@ -0,0 +1,527 @@
+@@ -0,0 +1,504 @@
 +#!/usr/bin/env python3
 +# SPDX-License-Identifier: GPL-2.0-only
 +#
-+# Copyright (C) 2023 Red Hat, Inc.
-+# Alessandro Carminati <alessandro.carminati@gmail.com>
++# Copyright (C) 2023 Red Hat, Inc. Alessandro Carminati <alessandro.carminati@gmail.com>
 +#
 +# kas_alias: Adds alias to duplicate symbols for the kallsyms output.
 +
@@ -254,8 +299,7 @@ index 000000000000..f68cdecdcf6c
 +class SeparatorType:
 +    def __call__(self, separator):
 +        if len(separator) != 1:
-+            raise argparse.ArgumentTypeError(
-+                    "Separator must be a single character")
++            raise argparse.ArgumentTypeError("Separator must be a single character")
 +        return separator
 +
 +class Addr2LineError(Exception):
@@ -361,6 +405,14 @@ index 000000000000..f68cdecdcf6c
 +    if debug >= DebugLevel.DEBUG_ALL.value:
 +       print(f"process_line: Processing {line.address} {line.type} {line.name}")
 +
++    # The module contains symbols that were discarded after being loaded. Typically,
++    # these symbols belong to the initialization function. These symbols have their
++    # address set to 0, so this check prevents these symbols from being assigned aliases.
++    if int(line.address,16) == 0:
++        if debug >= DebugLevel.DEBUG_ALL.value:
++            print(f"process_line: Skip {line.name} since its address is 0")
++        return False
++
 +    if process_data_sym:
 +        return not (any(re.match(regex, line.name) for regex in regex_filter))
 +    else:
@@ -418,10 +470,8 @@ index 000000000000..f68cdecdcf6c
 +       print(f"do_nm: executing {nm_executable} -n {filename}")
 +
 +    try:
-+        nm_output = subprocess.check_output(
-+                      [nm_executable, '-n', filename],
-+                      universal_newlines=True,
-+                      stderr=subprocess.STDOUT).splitlines()
++        nm_output = subprocess.check_output([nm_executable, '-n', filename],
++                      universal_newlines=True, stderr=subprocess.STDOUT).splitlines()
 +        return nm_output
 +    except subprocess.CalledProcessError as e:
 +        raise SystemExit(f"Fatal: Error executing nm: {e}")
@@ -601,6 +651,8 @@ index 000000000000..f68cdecdcf6c
 +                objcopy_args = objcopy_args + make_objcpy_arg(obj, decoration, elf_section_names)
 +                args_cnt = args_cnt + 1
 +                if args_cnt > 50:
++                   if debug >= DebugLevel.DEBUG_MODULES.value:
++                      print("Produce_output_modules: Number of arguments high, split objcopy call into multiple statements.")
 +                   execute_objcopy(config.objcopy_file, objcopy_args, module_file_name)
 +                   args_cnt = 0
 +                   objcopy_args = ""
@@ -628,27 +680,6 @@ index 000000000000..f68cdecdcf6c
 +                decoration = generate_decoration(obj, config, addr2line_process)
 +                if decoration != "":
 +                    output_file.write(f"{obj.address} {obj.type} {obj.name + decoration}\n")
-+
-+def check_ko(files):
-+    """
-+    Updates the list of module files kas_alias needs to add aliases. If at the time kas_alias
-+    is called, .ko files already exists, kas_alias needs to operate on them.
-+    Args:
-+      files: List of files (modules.order file contents)
-+    Returns:
-+      Returns the updated list.
-+    """
-+    modified_list = []
-+
-+    for o_file in files:
-+        ko_file = o_file.replace(".o", ".ko")
-+
-+        if os.path.exists(ko_file):
-+            modified_list.append(ko_file)
-+        else:
-+            modified_list.append(o_file)
-+
-+    return modified_list
 +
 +if __name__ == "__main__":
 +    # Handles command-line arguments and generates a config object
@@ -687,14 +718,6 @@ index 000000000000..f68cdecdcf6c
 +
 +        # Process nm data for modules
 +        module_list = fetch_file_lines(config.module_list)
-+        # Configuration items determine whether, at the time kas_alias is
-+        # called, the linked and ready-to-use modules in .ko format already
-+        # exist or not.
-+        # Because of this, kas_alias needs to verify if any given .ko module
-+        # exists before proceeding.
-+        # If the .ko module exists, it should insert aliases into it;
-+        # otherwise, it should continue with the corresponding .o file.
-+        module_list = check_ko(module_list)
 +        module_symbol_list = {}
 +        for module in module_list:
 +            module_nm_lines = do_nm(module, config.nm_file)
@@ -733,7 +756,7 @@ index 000000000000..f68cdecdcf6c
 +    except Exception as e:
 +        raise SystemExit(f"Script terminated due to an error: {e}")
 diff --git a/scripts/link-vmlinux.sh b/scripts/link-vmlinux.sh
-index a432b171be82..4a6381e1ee65 100755
+index a432b171be82..beb94f1f7961 100755
 --- a/scripts/link-vmlinux.sh
 +++ b/scripts/link-vmlinux.sh
 @@ -91,7 +91,12 @@ vmlinux_link()
@@ -750,7 +773,7 @@ index a432b171be82..4a6381e1ee65 100755
  	fi
  
  	if is_enabled CONFIG_VMLINUX_MAP; then
-@@ -161,7 +166,21 @@ kallsyms()
+@@ -161,7 +166,23 @@ kallsyms()
  	fi
  
  	info KSYMS ${2}
@@ -762,6 +785,8 @@ index a432b171be82..4a6381e1ee65 100755
 +	fi
 +	if is_enabled CONFIG_KALLSYMS_ALIAS_SRCLINE; then
 +		ALIAS=".alias"
++		# You can use KAS_ALIAS_DEBUG=<debug level> in the make statements to enable
++		# verbose execution for kas_alias.
 +		${srctree}/scripts/kas_alias.py \
 +			--addr2line ${ADDR2LINE} --vmlinux ${kallsyms_vmlinux} \
 +			--nmdata ${1} --outfile ${1}${ALIAS} \
@@ -773,6 +798,14 @@ index a432b171be82..4a6381e1ee65 100755
  }
  
  # Perform one step in kallsyms generation, including temporary linking of
+@@ -203,6 +224,7 @@ cleanup()
+ 	rm -f System.map
+ 	rm -f vmlinux
+ 	rm -f vmlinux.map
++	find . -type f -name "*.orig" -exec rm {} \;
+ }
+ 
+ # Use "make V=1" to debug this script
 -- 
 2.34.1
 
