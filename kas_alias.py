@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-2.0-only
 #
-# Copyright (C) 2023 Red Hat, Inc.
-# Alessandro Carminati <alessandro.carminati@gmail.com>
+# Copyright (C) 2023 Red Hat, Inc. Alessandro Carminati <alessandro.carminati@gmail.com>
 #
 # kas_alias: Adds alias to duplicate symbols for the kallsyms output.
 
@@ -47,8 +46,7 @@ class DebugLevel(Enum):
 class SeparatorType:
     def __call__(self, separator):
         if len(separator) != 1:
-            raise argparse.ArgumentTypeError(
-                    "Separator must be a single character")
+            raise argparse.ArgumentTypeError("Separator must be a single character")
         return separator
 
 class Addr2LineError(Exception):
@@ -211,10 +209,8 @@ def do_nm(filename, nm_executable):
        print(f"do_nm: executing {nm_executable} -n {filename}")
 
     try:
-        nm_output = subprocess.check_output(
-                      [nm_executable, '-n', filename],
-                      universal_newlines=True,
-                      stderr=subprocess.STDOUT).splitlines()
+        nm_output = subprocess.check_output([nm_executable, '-n', filename],
+                      universal_newlines=True, stderr=subprocess.STDOUT).splitlines()
         return nm_output
     except subprocess.CalledProcessError as e:
         raise SystemExit(f"Fatal: Error executing nm: {e}")
