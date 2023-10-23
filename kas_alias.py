@@ -152,6 +152,14 @@ def process_line(line, process_data_sym):
     if debug >= DebugLevel.DEBUG_ALL.value:
        print(f"process_line: Processing {line.address} {line.type} {line.name}")
 
+    # The module contains symbols that were discarded after being loaded. Typically,
+    # these symbols belong to the initialization function. These symbols have their
+    # address set to 0, so this check prevents these symbols from being assigned aliases.
+    if int(line.address,16) == 0:
+        if debug >= DebugLevel.DEBUG_ALL.value:
+            print(f"process_line: Skip {line.name} since its address is 0")
+        return False
+
     if process_data_sym:
         return not (any(re.match(regex, line.name) for regex in regex_filter))
     else:
