@@ -1,4 +1,4 @@
-From 40d78c520b404817ec0626d333ffb201dca31110 Mon Sep 17 00:00:00 2001
+From 66dfd452ee21fd2d652d2dc1c169ad4ddb1bc4f6 Mon Sep 17 00:00:00 2001
 From: "Alessandro Carminati (Red Hat)" <alessandro.carminati@gmail.com>
 Date: Sat, 9 Sep 2023 08:50:39 +0000
 Subject: [PATCH v6] scripts/link-vmlinux.sh: Add alias to duplicate symbols
@@ -42,6 +42,30 @@ following:
  ffffffff966e1770 T device_show_bool
  ffffffffc04e10a0 t device_show [mmc_core]
  ffffffffc04e10a0 t device_show@drivers_mmc_core_sdio_bus_c_45  [mmc_core]
+
+Signed-off-by: Alessandro Carminati (Red Hat) <alessandro.carminati@gmail.com>
+
+NOTE1:
+About the symbols name duplication that happens as consequence of the
+inclusion compat_binfmt_elf.c does, it is evident that this corner is
+inherently challenging the addr2line approach.
+Attempting to conceal this limitation would be counterproductive.
+
+compat_binfmt_elf.c includes directly binfmt_elf.c, addr2line can't help
+but report all functions and data declared by that file, coming from
+binfmt_elf.c.
+
+My position is that, rather than producing a more complicated pipeline
+to handle this corner case, it is better to fix the compat_binfmt_elf.c
+anomaly.
+
+This patch does not deal with the two potentially problematic symbols
+defined by compat_binfmt_elf.c
+
+NOTE2:
+The current implementation does not offer a solution for out-of-tree modules.
+My stance is that these modules fall outside the scope, but I welcome any
+comments or feedback regarding this matter.
 
 Changes from v1:
 * Integrated changes requested by Masami to exclude symbols with prefixes
@@ -105,37 +129,13 @@ Changes from v5:
 * tested on x86_64, aarch64, mips32, i386
 
 https://lore.kernel.org/all/20230927173516.1456594-1-alessandro.carminati@gmail.com/
-
-NOTE1:
-About the symbols name duplication that happens as consequence of the
-inclusion compat_binfmt_elf.c does, it is evident that this corner is
-inherently challenging the addr2line approach.
-Attempting to conceal this limitation would be counterproductive.
-
-compat_binfmt_elf.c includes directly binfmt_elf.c, addr2line can't help
-but report all functions and data declared by that file, coming from
-binfmt_elf.c.
-
-My position is that, rather than producing a more complicated pipeline
-to handle this corner case, it is better to fix the compat_binfmt_elf.c
-anomaly.
-
-This patch does not deal with the two potentially problematic symbols
-defined by compat_binfmt_elf.c
-
-NOTE2:
-The current implementation does not offer a solution for out-of-tree modules.
-My stance is that these modules fall outside the scope, but I welcome any
-comments or feedback regarding this matter.
-
-Signed-off-by: Alessandro Carminati (Red Hat) <alessandro.carminati@gmail.com>
 ---
  Makefile                  |  14 +-
  init/Kconfig              |  22 ++
  scripts/Makefile.modfinal |  10 +-
- scripts/kas_alias.py      | 504 ++++++++++++++++++++++++++++++++++++++
+ scripts/kas_alias.py      | 545 ++++++++++++++++++++++++++++++++++++++
  scripts/link-vmlinux.sh   |  26 +-
- 5 files changed, 572 insertions(+), 4 deletions(-)
+ 5 files changed, 613 insertions(+), 4 deletions(-)
  create mode 100755 scripts/kas_alias.py
 
 diff --git a/Makefile b/Makefile
@@ -247,10 +247,10 @@ index b3a6aa8fbe8c..3d9756a6eb3e 100644
  	+$(if $(newer-prereqs),$(call cmd,btf_ko))
 diff --git a/scripts/kas_alias.py b/scripts/kas_alias.py
 new file mode 100755
-index 000000000000..3829cccd9aca
+index 000000000000..3d72eccbc671
 --- /dev/null
 +++ b/scripts/kas_alias.py
-@@ -0,0 +1,504 @@
+@@ -0,0 +1,545 @@
 +#!/usr/bin/env python3
 +# SPDX-License-Identifier: GPL-2.0-only
 +#
@@ -392,7 +392,7 @@ index 000000000000..3829cccd9aca
 +                         f" the addr2line resolver: {e}."
 +                        )
 +
-+def process_line(line, process_data_sym):
++def process_line(line, process_data_sym, init_section_info):
 +    """
 +    Determines whether a duplicate item requires an alias or not.
 +    Args:
@@ -407,11 +407,14 @@ index 000000000000..3829cccd9aca
 +
 +    # The module contains symbols that were discarded after being loaded. Typically,
 +    # these symbols belong to the initialization function. These symbols have their
-+    # address set to 0, so this check prevents these symbols from being assigned aliases.
-+    if int(line.address,16) == 0:
-+        if debug >= DebugLevel.DEBUG_ALL.value:
-+            print(f"process_line: Skip {line.name} since its address is 0")
-+        return False
++    # address in the init section addresses, so this check prevents these symbols
++    # from being assigned aliases.
++    if init_section_info != None:
++        if (int(line.address, 16) >= init_section_info["address"] and
++          int(line.address, 16) <= init_section_info["address"] + init_section_info["size"]):
++            if debug >= DebugLevel.DEBUG_ALL.value:
++                print(f"process_line: Skip {line.name} since its address is .init.text")
++            return False
 +
 +    if process_data_sym:
 +        return not (any(re.match(regex, line.name) for regex in regex_filter))
@@ -575,7 +578,55 @@ index 000000000000..3829cccd9aca
 +       return decoration
 +    return ""
 +
-+def get_section_names(objdump_executable, file_to_operate):
++def get_objdump_text(objdump_executable, file_to_operate):
++    """
++    objdump output is needed for a couple of functions revolving around
++    modules. This function kust query objdump to emit sections info and
++    return its output.
++    Args:
++      objdump_executable: String representing the objdump executable.
++      file_to_operate: file whose section names are wanted.
++    Returns:
++      Returns objdump output.
++    """
++    try:
++        output = subprocess.check_output(
++                   [objdump_executable, '-h', file_to_operate],
++                   universal_newlines=True)
++
++    except Exception as e:
++        raise SystemExit(
++                         "Fatal: Can't find section names"
++                         f" for {file_to_operate}. Error: {e}"
++                        )
++    return output
++
++def get_init_text_info(objdump_lines):
++    """
++    Recovers info on the .init.text section.
++    Args:
++      objdump_lines: output from objdump -h command.
++    Returns:
++      Returns a map containing the size and address of the .init.text section
++      None if it is not there.
++    """
++    section_info = None
++    section_name_pattern = re.compile(r'^\s*\d+')
++
++    for line in objdump_lines.strip().splitlines():
++        if section_name_pattern.match(line):
++            parts = line.split()
++            if len(parts) >= 2:
++                current_section_name = parts[1]
++                if current_section_name == ".init.text":
++                    size = int(parts[2], 16)
++                    address = int(parts[3], 16)
++                    section_info = {"size": size, "address": address}
++                    break
++
++    return section_info
++
++def get_section_names(objdump_lines):
 +    """
 +    objcopy needs to refer to a section name to assign the symbol type.
 +    Unfortunately, not always all the section are present into a given
@@ -584,46 +635,34 @@ index 000000000000..3829cccd9aca
 +    For this reason this function tries to recover the exact names to use
 +    in an objcopy statement.
 +    Args:
-+      objdump_executable: String representing the objdump executable.
-+      file_to_operate: file whose section names are wanted.
++      objdump_lines: output from objdump -h command.
 +    Returns:
 +      Returns a map containing four string indexed with typical section
 +      names.
 +    """
-+    try:
-+        output = subprocess.check_output(
-+                   [objdump_executable, '-h', file_to_operate],
-+                   universal_newlines=True)
++    section_names = []
++    lines = objdump_lines.strip().splitlines()
++    section_name_pattern = re.compile(r'^\s*\d+')
++    for line in lines:
++        if section_name_pattern.match(line):
++            parts = line.split()
++            if len(parts) >= 2:
++                section_name = parts[1]
++                section_names.append(section_name)
 +
-+        section_names = []
-+        lines = output.strip().splitlines()
-+        section_name_pattern = re.compile(r'^\s*\d+')
-+        for line in lines:
-+            if section_name_pattern.match(line):
-+                parts = line.split()
-+                if len(parts) >= 2:
-+                    section_name = parts[1]
-+                    section_names.append(section_name)
++    best_matches = [".text", ".rodata", ".data", ".bss"]
++    result = {}
 +
-+        best_matches = [".text", ".rodata", ".data", ".bss"]
-+        result = {}
++    for match in best_matches:
++        for section_name in section_names:
++            if re.match(match+".*", section_name):
++                result[match] = section_name
 +
-+        for match in best_matches:
-+            for section_name in section_names:
-+                if re.match(match+".*", section_name):
-+                    result[match] = section_name
++    if debug >= DebugLevel.DEBUG_MODULES.value:
++        for key, value in result.items():
++            print(f"get_section_names: sections {key} = {value}")
 +
-+        if debug >= DebugLevel.DEBUG_MODULES.value:
-+            for key, value in result.items():
-+                print(f"get_section_names: sections {key} = {value}")
-+
-+        return result
-+
-+    except Exception as e:
-+        raise SystemExit(
-+                         "Fatal: Can't find section names"
-+                         f" for {file_to_operate}. Error: {e}"
-+                        )
++    return result
 +
 +def produce_output_modules(config, symbol_list, name_occurrences,
 +                           module_file_name, addr2line_process):
@@ -643,9 +682,11 @@ index 000000000000..3829cccd9aca
 +    """
 +    objcopy_args = "";
 +    args_cnt = 0
-+    elf_section_names = get_section_names(config.objdump_file, module_file_name)
++    objdump_data = get_objdump_text(config.objdump_file, module_file_name)
++    elf_section_names = get_section_names(objdump_data)
++    init_text_section_data = get_init_text_info(objdump_data)
 +    for obj in symbol_list:
-+        if (name_occurrences[obj.name] > 1) and process_line(obj, config.process_data_sym):
++        if (name_occurrences[obj.name] > 1) and process_line(obj, config.process_data_sym, init_text_section_data):
 +            decoration = generate_decoration(obj, config, addr2line_process)
 +            if decoration != "":
 +                objcopy_args = objcopy_args + make_objcpy_arg(obj, decoration, elf_section_names)
@@ -676,7 +717,7 @@ index 000000000000..3829cccd9aca
 +    with open(config.output_file, 'w') as output_file:
 +        for obj in symbol_list:
 +            output_file.write(f"{obj.address} {obj.type} {obj.name}\n")
-+            if (name_occurrences[obj.name] > 1) and process_line(obj, config.process_data_sym):
++            if (name_occurrences[obj.name] > 1) and process_line(obj, config.process_data_sym, None):
 +                decoration = generate_decoration(obj, config, addr2line_process)
 +                if decoration != "":
 +                    output_file.write(f"{obj.address} {obj.type} {obj.name + decoration}\n")
