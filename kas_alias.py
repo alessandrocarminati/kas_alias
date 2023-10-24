@@ -139,7 +139,7 @@ def addr2line_fetch_address(addr2line_process, address):
                          f" the addr2line resolver: {e}."
                         )
 
-def process_line(line, process_data_sym):
+def process_line(line, process_data_sym, init_section_info):
     """
     Determines whether a duplicate item requires an alias or not.
     Args:
@@ -154,11 +154,14 @@ def process_line(line, process_data_sym):
 
     # The module contains symbols that were discarded after being loaded. Typically,
     # these symbols belong to the initialization function. These symbols have their
-    # address set to 0, so this check prevents these symbols from being assigned aliases.
-    if int(line.address,16) == 0:
-        if debug >= DebugLevel.DEBUG_ALL.value:
-            print(f"process_line: Skip {line.name} since its address is 0")
-        return False
+    # address in the init section addresses, so this check prevents these symbols
+    # from being assigned aliases.
+    if init_section_info != None:
+        if (int(line.address, 16) >= init_section_info["address"] and
+          int(line.address, 16) <= init_section_info["address"] + init_section_info["size"]):
+            if debug >= DebugLevel.DEBUG_ALL.value:
+                print(f"process_line: Skip {line.name} since its address is .init.text")
+            return False
 
     if process_data_sym:
         return not (any(re.match(regex, line.name) for regex in regex_filter))
@@ -322,7 +325,55 @@ def generate_decoration(line, config, addr2line_process):
        return decoration
     return ""
 
-def get_section_names(objdump_executable, file_to_operate):
+def get_objdump_text(objdump_executable, file_to_operate):
+    """
+    objdump output is needed for a couple of functions revolving around
+    modules. This function kust query objdump to emit sections info and
+    return its output.
+    Args:
+      objdump_executable: String representing the objdump executable.
+      file_to_operate: file whose section names are wanted.
+    Returns:
+      Returns objdump output.
+    """
+    try:
+        output = subprocess.check_output(
+                   [objdump_executable, '-h', file_to_operate],
+                   universal_newlines=True)
+
+    except Exception as e:
+        raise SystemExit(
+                         "Fatal: Can't find section names"
+                         f" for {file_to_operate}. Error: {e}"
+                        )
+    return output
+
+def get_init_text_info(objdump_lines):
+    """
+    Recovers info on the .init.text section.
+    Args:
+      objdump_lines: output from objdump -h command.
+    Returns:
+      Returns a map containing the size and address of the .init.text section
+      None if it is not there.
+    """
+    section_info = None
+    section_name_pattern = re.compile(r'^\s*\d+')
+
+    for line in objdump_lines.strip().splitlines():
+        if section_name_pattern.match(line):
+            parts = line.split()
+            if len(parts) >= 2:
+                current_section_name = parts[1]
+                if current_section_name == ".init.text":
+                    size = int(parts[2], 16)
+                    address = int(parts[3], 16)
+                    section_info = {"size": size, "address": address}
+                    break
+
+    return section_info
+
+def get_section_names(objdump_lines):
     """
     objcopy needs to refer to a section name to assign the symbol type.
     Unfortunately, not always all the section are present into a given
@@ -331,46 +382,34 @@ def get_section_names(objdump_executable, file_to_operate):
     For this reason this function tries to recover the exact names to use
     in an objcopy statement.
     Args:
-      objdump_executable: String representing the objdump executable.
-      file_to_operate: file whose section names are wanted.
+      objdump_lines: output from objdump -h command.
     Returns:
       Returns a map containing four string indexed with typical section
       names.
     """
-    try:
-        output = subprocess.check_output(
-                   [objdump_executable, '-h', file_to_operate],
-                   universal_newlines=True)
+    section_names = []
+    lines = objdump_lines.strip().splitlines()
+    section_name_pattern = re.compile(r'^\s*\d+')
+    for line in lines:
+        if section_name_pattern.match(line):
+            parts = line.split()
+            if len(parts) >= 2:
+                section_name = parts[1]
+                section_names.append(section_name)
 
-        section_names = []
-        lines = output.strip().splitlines()
-        section_name_pattern = re.compile(r'^\s*\d+')
-        for line in lines:
-            if section_name_pattern.match(line):
-                parts = line.split()
-                if len(parts) >= 2:
-                    section_name = parts[1]
-                    section_names.append(section_name)
+    best_matches = [".text", ".rodata", ".data", ".bss"]
+    result = {}
 
-        best_matches = [".text", ".rodata", ".data", ".bss"]
-        result = {}
+    for match in best_matches:
+        for section_name in section_names:
+            if re.match(match+".*", section_name):
+                result[match] = section_name
 
-        for match in best_matches:
-            for section_name in section_names:
-                if re.match(match+".*", section_name):
-                    result[match] = section_name
+    if debug >= DebugLevel.DEBUG_MODULES.value:
+        for key, value in result.items():
+            print(f"get_section_names: sections {key} = {value}")
 
-        if debug >= DebugLevel.DEBUG_MODULES.value:
-            for key, value in result.items():
-                print(f"get_section_names: sections {key} = {value}")
-
-        return result
-
-    except Exception as e:
-        raise SystemExit(
-                         "Fatal: Can't find section names"
-                         f" for {file_to_operate}. Error: {e}"
-                        )
+    return result
 
 def produce_output_modules(config, symbol_list, name_occurrences,
                            module_file_name, addr2line_process):
@@ -390,9 +429,11 @@ def produce_output_modules(config, symbol_list, name_occurrences,
     """
     objcopy_args = "";
     args_cnt = 0
-    elf_section_names = get_section_names(config.objdump_file, module_file_name)
+    objdump_data = get_objdump_text(config.objdump_file, module_file_name)
+    elf_section_names = get_section_names(objdump_data)
+    init_text_section_data = get_init_text_info(objdump_data)
     for obj in symbol_list:
-        if (name_occurrences[obj.name] > 1) and process_line(obj, config.process_data_sym):
+        if (name_occurrences[obj.name] > 1) and process_line(obj, config.process_data_sym, init_text_section_data):
             decoration = generate_decoration(obj, config, addr2line_process)
             if decoration != "":
                 objcopy_args = objcopy_args + make_objcpy_arg(obj, decoration, elf_section_names)
@@ -423,7 +464,7 @@ def produce_output_vmlinux(config, symbol_list, name_occurrences, addr2line_proc
     with open(config.output_file, 'w') as output_file:
         for obj in symbol_list:
             output_file.write(f"{obj.address} {obj.type} {obj.name}\n")
-            if (name_occurrences[obj.name] > 1) and process_line(obj, config.process_data_sym):
+            if (name_occurrences[obj.name] > 1) and process_line(obj, config.process_data_sym, None):
                 decoration = generate_decoration(obj, config, addr2line_process)
                 if decoration != "":
                     output_file.write(f"{obj.address} {obj.type} {obj.name + decoration}\n")
