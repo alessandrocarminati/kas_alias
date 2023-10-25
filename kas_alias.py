@@ -7,6 +7,7 @@
 
 import os
 import re
+import inspect
 import argparse
 import subprocess
 from enum import Enum
@@ -54,7 +55,36 @@ class Addr2LineError(Exception):
 
 debug = DebugLevel.PRODUCTION
 
-Line = namedtuple('Line', ['address', 'type', 'name'])
+Line = namedtuple('Line', ['address', 'type', 'name', 'addr_int'])
+
+def get_caller():
+    """
+    Gets the caller's caller name if any, "kas_alias" otherwise
+    Args:
+      Nonw
+    Returns:
+      A string representing a name of a function.
+    """
+    stack = inspect.stack()
+    if len(stack) > 2:
+        caller = stack[2][0]
+        caller_name = caller.f_code.co_name
+        return caller_name
+    else:
+        return "kas_alias"
+
+def debug_print(print_debug_level, text):
+    """
+    Prints text if current debug level is greater or equal to print_debug_level.
+    Args:
+      current_debug_level: Application debug level specified by command line.
+      print_debug_level: Minumum debug level message should be printed.
+      text: string representing the message.
+    Retuns:
+      Nothing.
+    """
+    if debug >= print_debug_level:
+        print(f"{get_caller()}: " + text)
 
 def parse_nm_lines(lines, name_occurrences=None):
     """
@@ -67,9 +97,8 @@ def parse_nm_lines(lines, name_occurrences=None):
     Returns:
       Creates a new line list proper for the nm output it parsed and, updates
       the occurrences hash.
-  """
-    if debug >= DebugLevel.DEBUG_BASIC.value:
-       print("parse_nm_lines: parse start")
+    """
+    debug_print(DebugLevel.DEBUG_BASIC.value, "parse_nm_lines: parse start")
 
     if name_occurrences is None:
         name_occurrences = {}
@@ -81,7 +110,7 @@ def parse_nm_lines(lines, name_occurrences=None):
 
         if len(fields) >= 3:
             address, type, name = fields[0], fields[1], ' '.join(fields[2:])
-            symbol_list.append(Line(address, type, name))
+            symbol_list.append(Line(address, type, name, int(address, 16)))
             name_occurrences[name] = name_occurrences.get(name, 0) + 1
 
     return symbol_list, name_occurrences
@@ -96,8 +125,7 @@ def start_addr2line_process(binary_file, addr2line_file):
     Returns:
       Returns addr2line process descriptor.
     """
-    if debug >= DebugLevel.DEBUG_BASIC.value:
-       print(f"start_addr2line_process: Startin addr2line process on {binary_file}")
+    debug_print(DebugLevel.DEBUG_BASIC.value, f"Startin addr2line process on {binary_file}")
 
     try:
         addr2line_process = subprocess.Popen([addr2line_file, '-fe',
@@ -123,8 +151,7 @@ def addr2line_fetch_address(addr2line_process, address):
       at the specified address has been defined. The address is normalized
       before being returned.
   """
-    if debug >= DebugLevel.DEBUG_ALL.value:
-       print(f"addr2line_fetch_address: Resolving {address}")
+    debug_print(DebugLevel.DEBUG_ALL.value, f"Resolving {address}")
 
     try:
         addr2line_process.stdin.write(address + '\n')
@@ -146,21 +173,21 @@ def process_line(line, process_data_sym, init_section_info):
       line: nm line object that needs to be checked.
       process_data_sym: Flag indicating that the script requires to produce alias
                         also for data symbols.
+      init_section_info: Map containing the size and the base address of the
+                         .init.text section.
     Returns:
       Returns true if the line needs to be processed, false otherwise.
     """
-    if debug >= DebugLevel.DEBUG_ALL.value:
-       print(f"process_line: Processing {line.address} {line.type} {line.name}")
+    debug_print(DebugLevel.DEBUG_ALL.value, f"Processing {line.address} {line.type} {line.name}")
 
     # The module contains symbols that were discarded after being loaded. Typically,
     # these symbols belong to the initialization function. These symbols have their
     # address in the init section addresses, so this check prevents these symbols
     # from being assigned aliases.
     if init_section_info != None:
-        if (int(line.address, 16) >= init_section_info["address"] and
-          int(line.address, 16) <= init_section_info["address"] + init_section_info["size"]):
-            if debug >= DebugLevel.DEBUG_ALL.value:
-                print(f"process_line: Skip {line.name} since its address is .init.text")
+        if (line.addr_int >= init_section_info["address"] and
+          line.addr_int <= init_section_info["address"] + init_section_info["size"]):
+            debug_print(DebugLevel.DEBUG_ALL.value, f"Skip {line.name} since its address is .init.text")
             return False
 
     if process_data_sym:
@@ -177,8 +204,7 @@ def fetch_file_lines(filename):
     Returns:
       Returns a string list representing the lines read in the file.
     """
-    if debug >= DebugLevel.DEBUG_BASIC.value:
-       print(f"fetch_file_lines: Fetch {filename}")
+    debug_print(DebugLevel.DEBUG_BASIC.value, f"Fetch {filename}")
 
     try:
         with open(filename, 'r') as file:
@@ -216,8 +242,7 @@ def do_nm(filename, nm_executable):
         print(f"do_nm: {filename} is not clean, restore {backup_file} to {filename}")
         os.rename(backup_file, filename)
 
-    if debug >= DebugLevel.DEBUG_BASIC.value:
-       print(f"do_nm: executing {nm_executable} -n {filename}")
+    debug_print(DebugLevel.DEBUG_BASIC.value, f"executing {nm_executable} -n {filename}")
 
     try:
         nm_output = subprocess.check_output([nm_executable, '-n', filename],
@@ -250,8 +275,7 @@ def make_objcpy_arg(line, decoration, elf_section_names):
         )
         flag = "global" if line.type.isupper() else "local"
 
-        if debug >= DebugLevel.DEBUG_MODULES.value:
-           print("make_objcpy_arg: "
+        debug_print(DebugLevel.DEBUG_MODULES.value,
                  f"{line.name + decoration}={section}:0x{line.address},{flag}")
 
 
@@ -282,17 +306,14 @@ def execute_objcopy(objcopy_executable, objcopy_args, object_file):
     """
     # Rename the original object file by adding a suffix
     backup_file = object_file + '.orig'
-    if debug >= DebugLevel.DEBUG_MODULES.value:
-       print("execute_objcopy: "
-             f"rename {object_file} to {backup_file}")
+    debug_print(DebugLevel.DEBUG_MODULES.value, f"rename {object_file} to {backup_file}")
     os.rename(object_file, backup_file)
 
     full_command = (
                     f"{objcopy_executable} "
                     f"{objcopy_args} {backup_file} {object_file}"
                    )
-    if debug >= DebugLevel.DEBUG_MODULES.value:
-       print(f"execute_objcopy: executing {full_command}")
+    debug_print(DebugLevel.DEBUG_MODULES.value, f"executing {full_command}")
 
     try:
         subprocess.run(full_command, shell=True, check=True)
@@ -328,7 +349,7 @@ def generate_decoration(line, config, addr2line_process):
 def get_objdump_text(objdump_executable, file_to_operate):
     """
     objdump output is needed for a couple of functions revolving around
-    modules. This function kust query objdump to emit sections info and
+    modules. This function just queries objdump to emit sections info and
     return its output.
     Args:
       objdump_executable: String representing the objdump executable.
@@ -402,7 +423,7 @@ def get_section_names(objdump_lines):
 
     for match in best_matches:
         for section_name in section_names:
-            if re.match(match+".*", section_name):
+            if match in section_name:
                 result[match] = section_name
 
     if debug >= DebugLevel.DEBUG_MODULES.value:
@@ -439,8 +460,8 @@ def produce_output_modules(config, symbol_list, name_occurrences,
                 objcopy_args = objcopy_args + make_objcpy_arg(obj, decoration, elf_section_names)
                 args_cnt = args_cnt + 1
                 if args_cnt > 50:
-                   if debug >= DebugLevel.DEBUG_MODULES.value:
-                      print("Produce_output_modules: Number of arguments high, split objcopy call into multiple statements.")
+                   debug_print(DebugLevel.DEBUG_MODULES.value, "Number of arguments high, split objcopy"
+                               " call into multiple statements.")
                    execute_objcopy(config.objcopy_file, objcopy_args, module_file_name)
                    args_cnt = 0
                    objcopy_args = ""
@@ -488,21 +509,18 @@ if __name__ == "__main__":
     debug = int(config.debug)
 
     try:
-        if debug >= DebugLevel.INFO.value:
-            print("kas_alias: Start processing")
+        debug_print(DebugLevel.INFO.value,"Start processing")
 
         # Determine kernel source code base directory
         config.linux_base_dir = os.path.normpath(os.getcwd() + "/" + config.linux_base_dir) + "/"
 
-        if debug >= DebugLevel.INFO.value:
-            print("kas_alias: Process nm data from vmlinux")
+        debug_print(DebugLevel.INFO.value, "Process nm data from vmlinux")
 
         # Process nm data from vmlinux
         vmlinux_nm_lines = fetch_file_lines(config.nm_data_file)
         vmlinux_symbol_list, name_occurrences = parse_nm_lines(vmlinux_nm_lines)
 
-        if debug >= DebugLevel.INFO.value:
-            print("kas_alias: Process nm data for modules")
+        debug_print(DebugLevel.INFO.value,"Process nm data for modules")
 
         # Process nm data for modules
         module_list = fetch_file_lines(config.module_list)
@@ -511,8 +529,7 @@ if __name__ == "__main__":
             module_nm_lines = do_nm(module, config.nm_file)
             module_symbol_list[module], name_occurrences = parse_nm_lines(module_nm_lines, name_occurrences)
 
-        if debug >= DebugLevel.INFO.value:
-            print("kas_alias: Produce file for vmlinux")
+        debug_print(DebugLevel.INFO.value, "Produce file for vmlinux")
 
         # Produce file for vmlinux
         addr2line_process = start_addr2line_process(config.vmlinux_file, config.addr2line_file)
@@ -522,11 +539,11 @@ if __name__ == "__main__":
         addr2line_process.stderr.close()
         addr2line_process.wait()
 
-        # link-vmlinux.sh calls this two times: Avoid running kas_alias twice for efficiency and prevent duplicate aliases
-        # in module processing by checking the last letter of the nm data file
+        # link-vmlinux.sh calls this two times: Avoid running kas_alias twice for efficiency
+        # and prevent duplicate aliases in module processing by checking the last letter of
+        # the nm data file
         if config.vmlinux_file and config.vmlinux_file[-1] == '2':
-            if debug >= DebugLevel.INFO.value:
-                print("kas_alias: Add aliases to module files")
+            debug_print(DebugLevel.INFO.value, "Add aliases to module files")
 
             # Add aliases to module files
             for module in module_list:
@@ -537,8 +554,7 @@ if __name__ == "__main__":
                 addr2line_process.stderr.close()
                 addr2line_process.wait()
         else:
-            if debug >= DebugLevel.INFO.value:
-                print("kas_alias: Skip module processing if pass is not the second")
+            debug_print(DebugLevel.INFO.value, "Skip module processing if pass is not the second")
 
 
     except Exception as e:
