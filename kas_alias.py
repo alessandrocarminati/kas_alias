@@ -516,26 +516,31 @@ if __name__ == "__main__":
         # Determine kernel source code base directory
         if not config.linux_base_dir.startswith('/'):
             config.linux_base_dir = os.path.normpath(os.getcwd() + "/" + config.linux_base_dir) + "/"
+        debug_print(DebugLevel.DEBUG_BASIC.value, f"Configuration: {config}")
         debug_print(DebugLevel.INFO.value, "Process nm data from vmlinux")
 
         # Process nm data from vmlinux
+        debug_print(DebugLevel.DEBUG_BASIC.value, f"fetch_file_lines({config.nm_data_file})")
         vmlinux_nm_lines = fetch_file_lines(config.nm_data_file)
         vmlinux_symbol_list, name_occurrences = parse_nm_lines(vmlinux_nm_lines)
 
         debug_print(DebugLevel.INFO.value,"Process nm data for modules")
 
         # Process nm data for modules
+        debug_print(DebugLevel.DEBUG_BASIC.value, f"fetch_file_lines({config.nm_data_file})")
         module_list = fetch_file_lines(config.module_list)
         module_symbol_list = {}
         for module in module_list:
             module_nm_lines = do_nm(module, config.nm_file)
             module_symbol_list[module], name_occurrences = parse_nm_lines(module_nm_lines, name_occurrences)
 
+        debug_print(DebugLevel.INFO.value, "Save symbol_frequency ")
         with open('symbol_frequency.json', 'w') as json_file:
             json.dump(name_occurrences, json_file)
 
         debug_print(DebugLevel.INFO.value, "Produce file for vmlinux")
         # Produce file for vmlinux
+        debug_print(DebugLevel.DEBUG_BASIC.value, f"addr2line_process({config.vmlinux_file}, {config.addr2line_file})")
         addr2line_process = start_addr2line_process(config.vmlinux_file, config.addr2line_file)
         produce_output_vmlinux(config, vmlinux_symbol_list, name_occurrences, addr2line_process)
         addr2line_process.stdin.close()
@@ -551,6 +556,7 @@ if __name__ == "__main__":
 
             # Add aliases to module files
             for module in module_list:
+                debug_print(DebugLevel.DEBUG_BASIC.value, f"addr2line_process({module}, {config.addr2line_file})")
                 addr2line_process = start_addr2line_process(module, config.addr2line_file)
                 produce_output_modules(config, module_symbol_list[module], name_occurrences, module, addr2line_process)
                 addr2line_process.stdin.close()
