@@ -342,6 +342,7 @@ def generate_decoration(line, config, addr2line_process):
     # The addr2line can emit the special string "?:??" when addr2line can not find the
     # specified address in the DWARF section that after normalization it becomes "____".
     # In such cases, emitting an alias wouldn't make sense, so it is skipped.
+    # ==============================================================================================> __quirk.0@___0
     if decoration != config.separator + "____":
        return decoration
     return ""
