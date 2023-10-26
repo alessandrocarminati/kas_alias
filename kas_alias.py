@@ -78,9 +78,9 @@ def debug_print(print_debug_level, text):
     Prints text if current debug level is greater or equal to print_debug_level.
     Args:
       current_debug_level: Application debug level specified by command line.
-      print_debug_level: Minumum debug level message should be printed.
+      print_debug_level: Minimum debug level message should be printed.
       text: string representing the message.
-    Retuns:
+    Returns:
       Nothing.
     """
     if debug >= print_debug_level:
@@ -125,7 +125,7 @@ def start_addr2line_process(binary_file, addr2line_file):
     Returns:
       Returns addr2line process descriptor.
     """
-    debug_print(DebugLevel.DEBUG_BASIC.value, f"Startin addr2line process on {binary_file}")
+    debug_print(DebugLevel.DEBUG_BASIC.value, f"Starting addr2line process on {binary_file}")
 
     try:
         addr2line_process = subprocess.Popen([addr2line_file, '-fe',
