@@ -513,8 +513,8 @@ if __name__ == "__main__":
         debug_print(DebugLevel.INFO.value,"Start processing")
 
         # Determine kernel source code base directory
-        config.linux_base_dir = os.path.normpath(os.getcwd() + "/" + config.linux_base_dir) + "/"
-
+        if not config.linux_base_dir.startswith('/'):
+            config.linux_base_dir = os.path.normpath(os.getcwd() + "/" + config.linux_base_dir) + "/"
         debug_print(DebugLevel.INFO.value, "Process nm data from vmlinux")
 
         # Process nm data from vmlinux
