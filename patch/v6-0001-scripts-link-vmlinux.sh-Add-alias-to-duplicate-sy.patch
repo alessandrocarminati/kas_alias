@@ -1,4 +1,4 @@
-From 66dfd452ee21fd2d652d2dc1c169ad4ddb1bc4f6 Mon Sep 17 00:00:00 2001
+From 333f96abf4b720c6095ff42811421eead98281dc Mon Sep 17 00:00:00 2001
 From: "Alessandro Carminati (Red Hat)" <alessandro.carminati@gmail.com>
 Date: Sat, 9 Sep 2023 08:50:39 +0000
 Subject: [PATCH v6] scripts/link-vmlinux.sh: Add alias to duplicate symbols
@@ -126,7 +126,10 @@ Changes from v5:
 * Regex filter extended to all symbols
 * Alias creation extended to module objects
 * Code cleaned and commented
-* tested on x86_64, aarch64, mips32, i386
+* kas_alias verbose execution via KAS_ALIAS_DEBUG env variable
+* CONFIG_KALLSYMS_ALIAS_SRCLINE selects KBUILD_BUILTIN to ensure no races
+  during modules build
+* Tested on x86_64, aarch64 and i386
 
 https://lore.kernel.org/all/20230927173516.1456594-1-alessandro.carminati@gmail.com/
 ---
@@ -247,7 +250,7 @@ index b3a6aa8fbe8c..3d9756a6eb3e 100644
  	+$(if $(newer-prereqs),$(call cmd,btf_ko))
 diff --git a/scripts/kas_alias.py b/scripts/kas_alias.py
 new file mode 100755
-index 000000000000..3d72eccbc671
+index 000000000000..bc930039867b
 --- /dev/null
 +++ b/scripts/kas_alias.py
 @@ -0,0 +1,545 @@
@@ -350,7 +353,7 @@ index 000000000000..3d72eccbc671
 +      Returns addr2line process descriptor.
 +    """
 +    if debug >= DebugLevel.DEBUG_BASIC.value:
-+       print(f"start_addr2line_process: Startin addr2line process on {binary_file}")
++       print(f"start_addr2line_process: Starting addr2line process on {binary_file}")
 +
 +    try:
 +        addr2line_process = subprocess.Popen([addr2line_file, '-fe',
