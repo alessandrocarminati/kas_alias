@@ -7,6 +7,7 @@
 
 import os
 import re
+import json
 import inspect
 import argparse
 import subprocess
@@ -530,8 +531,10 @@ if __name__ == "__main__":
             module_nm_lines = do_nm(module, config.nm_file)
             module_symbol_list[module], name_occurrences = parse_nm_lines(module_nm_lines, name_occurrences)
 
-        debug_print(DebugLevel.INFO.value, "Produce file for vmlinux")
+        with open('symbol_frequency.json', 'w') as json_file:
+            json.dump(name_occurrences, json_file)
 
+        debug_print(DebugLevel.INFO.value, "Produce file for vmlinux")
         # Produce file for vmlinux
         addr2line_process = start_addr2line_process(config.vmlinux_file, config.addr2line_file)
         produce_output_vmlinux(config, vmlinux_symbol_list, name_occurrences, addr2line_process)
