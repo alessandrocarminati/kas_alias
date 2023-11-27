@@ -1,0 +1,19 @@
+make: Entering directory '/home/alessandro/src/linux-6.6.1/build-aarch64'
+-------------------------> ../Makefile  <-------------------------
+-------------------------> /home/alessandro/src/linux-6.6.1/Makefile  <-------------------------
+-------------------------> ../scripts/Makefile.compiler  <-------------------------
+-------------------------> ../arch/arm64/Makefile  <-------------------------
+-------------------------> ../scripts/Makefile.defconf  <-------------------------
+-------------------------> ../scripts/Makefile.extrawarn  <-------------------------
+-------------------------> ../scripts/Makefile.debug  <-------------------------
+-------------------------> ../scripts/Makefile.build  <-------------------------
+-------------------------> ../scripts/Makefile.compiler  <-------------------------
+-------------------------> ../scripts/Makefile.lib  <-------------------------
+  CC [M]  /home/alessandro/src/linux-6.6.1/hello/hello.o
+-------------------------> ../scripts/Makefile.modpost  <-------------------------
+  MODPOST /home/alessandro/src/linux-6.6.1/hello/Module.symvers
+-------------------------> ../scripts/Makefile.modfinal  <-------------------------
+-------------------------> ../scripts/Makefile.lib  <-------------------------
+  CC [M]  /home/alessandro/src/linux-6.6.1/hello/hello.mod.o
+  LD [M]  /home/alessandro/src/linux-6.6.1/hello/hello.ko
+make: Leaving directory '/home/alessandro/src/linux-6.6.1/build-aarch64'
