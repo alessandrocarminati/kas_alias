@@ -7,7 +7,6 @@
 
 import os
 import re
-import json
 import inspect
 import argparse
 import subprocess
@@ -543,8 +542,9 @@ if __name__ == "__main__":
                 module_symbol_list[module], name_occurrences = parse_nm_lines(module_nm_lines, name_occurrences)
 
             debug_print(DebugLevel.INFO.value, "Save symbol_frequency ")
-            with open(config.symbol_frequency_file, 'w') as json_file:
-                json.dump(name_occurrences, json_file)
+            with open(config.symbol_frequency_file, 'w') as file:
+                for key, value in name_occurrences.items():
+                    file.write(f"{key}:{value}\n")
 
             debug_print(DebugLevel.INFO.value, "Produce file for vmlinux")
             # Produce file for vmlinux
@@ -579,6 +579,10 @@ if __name__ == "__main__":
 
     elif config.action == 'out_of_tree':
         print("wip")
-        with open(config.symbol_frequency_file, 'r') as json_file:
-            name_occurrences = json.load(json_file)
+        name_occurrences = {}
+        with open(config.symbol_frequency_file, 'r') as file:
+            for line in file:
+                key, value = line.strip().split(':')
+                name_occurrences[key]=int(value)
         print(name_occurrences)
+
