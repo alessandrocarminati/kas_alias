@@ -495,28 +495,28 @@ if __name__ == "__main__":
     # Handles command-line arguments and generates a config object
     parser = argparse.ArgumentParser(description='Add alias to multiple occurring symbols name in kallsyms')
     subparsers = parser.add_subparsers(title='Subcommands', dest='action')
-    in_tree_parser = subparsers.add_parser('in_tree', help='Operates for in tree computation.')
-    in_tree_parser.add_argument('-a', "--addr2line", dest="addr2line_file", required=True, help="Set the addr2line executable to be used.")
-    in_tree_parser.add_argument('-b', "--basedir", dest="linux_base_dir", required=True, help="Set base directory of the source kernel code.")
-    in_tree_parser.add_argument('-c', "--objcopy", dest="objcopy_file", required=True, help="Set the objcopy executable to be used.")
-    in_tree_parser.add_argument('-d', "--process_data", dest="process_data_sym", required=False, help="Requires the tool to process data symbols along with text symbols.", action='store_true')
-    in_tree_parser.add_argument('-e', "--nm", dest="nm_file", required=True, help="Set the nm executable to be used.")
-    in_tree_parser.add_argument('-m', "--modules_list", dest="module_list", required=True, help="Set the file containing the list of the modules object files.")
-    in_tree_parser.add_argument('-n', "--nmdata", dest="nm_data_file", required=True, help="Set vmlinux nm output file to use for core image.")
-    in_tree_parser.add_argument('-o', "--outfile", dest="output_file", required=True, help="Set the vmlinux nm output file containing aliases.")
-    in_tree_parser.add_argument('-s', "--separator", dest="separator", required=False, help="Set separator, character that separates original name from the addr2line data in alias symbols.", default="@", type=SeparatorType())
-    in_tree_parser.add_argument('-u', "--objdump", dest="objdump_file", required=True, help="Set objdump  executable to be used.")
-    in_tree_parser.add_argument('-v', "--vmlinux", dest="vmlinux_file", required=True, help="Set the vmlinux core image file.")
+    core_image_parser = subparsers.add_parser('core_image', help='Operates for in tree computation.')
+    core_image_parser.add_argument('-a', "--addr2line", dest="addr2line_file", required=True, help="Set the addr2line executable to be used.")
+    core_image_parser.add_argument('-b', "--basedir", dest="linux_base_dir", required=True, help="Set base directory of the source kernel code.")
+    core_image_parser.add_argument('-c', "--objcopy", dest="objcopy_file", required=True, help="Set the objcopy executable to be used.")
+    core_image_parser.add_argument('-d', "--process_data", dest="process_data_sym", required=False, help="Requires the tool to process data symbols along with text symbols.", action='store_true')
+    core_image_parser.add_argument('-e', "--nm", dest="nm_file", required=True, help="Set the nm executable to be used.")
+    core_image_parser.add_argument('-m', "--modules_list", dest="module_list", required=True, help="Set the file containing the list of the modules object files.")
+    core_image_parser.add_argument('-n', "--nmdata", dest="nm_data_file", required=True, help="Set vmlinux nm output file to use for core image.")
+    core_image_parser.add_argument('-o', "--outfile", dest="output_file", required=True, help="Set the vmlinux nm output file containing aliases.")
+    core_image_parser.add_argument('-s', "--separator", dest="separator", required=False, help="Set separator, character that separates original name from the addr2line data in alias symbols.", default="@", type=SeparatorType())
+    core_image_parser.add_argument('-u', "--objdump", dest="objdump_file", required=True, help="Set objdump  executable to be used.")
+    core_image_parser.add_argument('-v', "--vmlinux", dest="vmlinux_file", required=True, help="Set the vmlinux core image file.")
 
-    out_of_tree_parser = subparsers.add_parser('out_of_tree', help='Operates for out of tree computation.')
-    out_of_tree_parser.add_argument('-a', "--dummy", dest="dummy", required=True, help="place holder")
+    modules_parser = subparsers.add_parser('modules', help='Operates for out of tree computation.')
+    modules_parser.add_argument('-a', "--dummy", dest="dummy", required=True, help="place holder")
 
     parser.add_argument('-j', "--symbol_frequency", dest="symbol_frequency_file", required=True, help="Specify the symbol frequency needed to use for producing aliases in out of tree modules compilation")
     parser.add_argument('-z', "--debug", dest="debug", required=False, help="Set the debug level.", choices=[f"{level.value}" for level in DebugLevel], default="1" )
 
     config = parser.parse_args()
     debug = int(config.debug)
-    if config.action == 'in_tree':
+    if config.action == 'core_image':
         try:
             debug_print(DebugLevel.INFO.value,"Start processing")
 
@@ -577,7 +577,7 @@ if __name__ == "__main__":
         except Exception as e:
             raise SystemExit(f"Script terminated due to an error: {e}")
 
-    elif config.action == 'out_of_tree':
+    elif config.action == 'modules':
         print("wip")
         name_occurrences = {}
         with open(config.symbol_frequency_file, 'r') as file:
