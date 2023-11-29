@@ -166,7 +166,7 @@ def addr2line_fetch_address(addr2line_process, address):
                          f" the addr2line resolver: {e}."
                         )
 
-def process_line(line, process_data_sym, init_section_info):
+def process_line(line, process_data_sym, section_map):
     """
     Determines whether a duplicate item requires an alias or not.
     Args:
@@ -184,11 +184,13 @@ def process_line(line, process_data_sym, init_section_info):
     # these symbols belong to the initialization function. These symbols have their
     # address in the init section addresses, so this check prevents these symbols
     # from being assigned aliases.
-    if init_section_info != None:
-        if (line.addr_int >= init_section_info["address"] and
-          line.addr_int <= init_section_info["address"] + init_section_info["size"]):
-            debug_print(DebugLevel.DEBUG_ALL.value, f"Skip {line.name} since its address is .init.text")
-            return False
+    if section_map != None:
+       if line.name in section_map:
+          if (".init" in section_map[line.name] or ".exit" in section_map[line.name]):
+              return False
+       else:
+          raise NameError("Division by zero is not allowed")
+
 
     if process_data_sym:
         return not (any(re.match(regex, line.name) for regex in regex_filter))
@@ -251,7 +253,7 @@ def do_nm(filename, nm_executable):
     except subprocess.CalledProcessError as e:
         raise SystemExit(f"Fatal: Error executing nm: {e}")
 
-def make_objcpy_arg(line, decoration, elf_section_names):
+def make_objcpy_arg(line, decoration, section_map):
     """
     Produces an objcopy argument statement for a single alias to be added in a
     module.
@@ -266,22 +268,15 @@ def make_objcpy_arg(line, decoration, elf_section_names):
       use to add the alias.
     """
     try:
-        section = (
-            elf_section_names[".text"] if line.type.upper() == "T" else (
-                elf_section_names[".data"] if line.type.upper() == "D" else (
-                    elf_section_names[".rodata"] if line.type.upper() == "R" else ".bss"
-                )
-            )
-        )
         flag = "global" if line.type.isupper() else "local"
 
         debug_print(DebugLevel.DEBUG_MODULES.value,
-                 f"{line.name + decoration}={section}:0x{line.address},{flag}")
+                 f"{line.name + decoration}={section_map[line.name]}:0x{line.address},{flag}")
 
 
         return (
                 "--add-symbol "
-                f"{line.name + decoration}={section}:0x{line.address},{flag} "
+                f"{line.name + decoration}={section_map[line.name]}:0x{line.address},{flag} "
                )
     except Exception:
         print(
@@ -336,8 +331,18 @@ def generate_decoration(line, config, addr2line_process):
       the point where the symbol is defined.
     """
     output = addr2line_fetch_address(addr2line_process, line.address)
+    base_dir = config.linux_base_dir + "/"
+    cwd = os.getcwd() + "/"
+    absolute_base_dir = os.path.abspath(os.path.join(cwd, base_dir))
+
+    if output.startswith(base_dir):
+        output = output[len(base_dir):]
+
+    if output.startswith(absolute_base_dir):
+        output = output[len(absolute_base_dir):]
+
     decoration = config.separator + "".join(
-        "_" if not c.isalnum() else c for c in output.replace(config.linux_base_dir, "")
+        "_" if not c.isalnum() else c for c in output
     )
     # The addr2line can emit the special string "?:??" when addr2line can not find the
     # specified address in the DWARF section that after normalization it becomes "____".
@@ -347,90 +352,40 @@ def generate_decoration(line, config, addr2line_process):
        return decoration
     return ""
 
-def get_objdump_text(objdump_executable, file_to_operate):
+def get_symbol2section(objdump_executable, file_to_operate):
     """
-    objdump output is needed for a couple of functions revolving around
-    modules. This function just queries objdump to emit sections info and
-    return its output.
+    symbols in the init/exit section are discarded just after the loading 
+    process. It make sense to avoid make any alias for those.
     Args:
       objdump_executable: String representing the objdump executable.
       file_to_operate: file whose section names are wanted.
     Returns:
-      Returns objdump output.
+      Returns a map, where the key is the symbol name and the vaue is True
     """
     try:
         output = subprocess.check_output(
                    [objdump_executable, '-h', file_to_operate],
                    universal_newlines=True)
+        section_pattern = re.compile(r'^ *[0-9]+ ([.a-z_]+) +([0-9a-f]+).*$', re.MULTILINE)
+        section_names = section_pattern.findall(output)
+#        debug_print(DebugLevel.DEBUG_ALL.value, f"Sections fount -> {section_names}")
+        result = {}
+        for section, section_siza in section_names:
+            if int(section_siza, 16) != 0:
+                output = subprocess.check_output(
+                           [objdump_executable, '-tj', section, file_to_operate],
+                           universal_newlines=True)
+                func_names_pattern = re.compile(r'[0-9a-f]+.* ([.a-zA-Z_][.A-Za-z_0-9]+)$', re.MULTILINE)
+                matches = func_names_pattern.findall(output)
+                for func_name in matches:
+                    result[func_name] = section
+
 
     except Exception as e:
         raise SystemExit(
-                         "Fatal: Can't find section names"
-                         f" for {file_to_operate}. Error: {e}"
+                         "Fatal: Cant create init_exit symbol map"
+                         f" using {file_to_operate}. Error: {e}"
                         )
-    return output
-
-def get_init_text_info(objdump_lines):
-    """
-    Recovers info on the .init.text section.
-    Args:
-      objdump_lines: output from objdump -h command.
-    Returns:
-      Returns a map containing the size and address of the .init.text section
-      None if it is not there.
-    """
-    section_info = None
-    section_name_pattern = re.compile(r'^\s*\d+')
-
-    for line in objdump_lines.strip().splitlines():
-        if section_name_pattern.match(line):
-            parts = line.split()
-            if len(parts) >= 2:
-                current_section_name = parts[1]
-                if current_section_name == ".init.text":
-                    size = int(parts[2], 16)
-                    address = int(parts[3], 16)
-                    section_info = {"size": size, "address": address}
-                    break
-
-    return section_info
-
-def get_section_names(objdump_lines):
-    """
-    objcopy needs to refer to a section name to assign the symbol type.
-    Unfortunately, not always all the section are present into a given
-    object file exist, for example, ".rodata" can not exist, and a [Rr]
-    symbol my refer to some other section e.g., ".rodata.str1".
-    For this reason this function tries to recover the exact names to use
-    in an objcopy statement.
-    Args:
-      objdump_lines: output from objdump -h command.
-    Returns:
-      Returns a map containing four string indexed with typical section
-      names.
-    """
-    section_names = []
-    lines = objdump_lines.strip().splitlines()
-    section_name_pattern = re.compile(r'^\s*\d+')
-    for line in lines:
-        if section_name_pattern.match(line):
-            parts = line.split()
-            if len(parts) >= 2:
-                section_name = parts[1]
-                section_names.append(section_name)
-
-    best_matches = [".text", ".rodata", ".data", ".bss"]
-    result = {}
-
-    for match in best_matches:
-        for section_name in section_names:
-            if match in section_name:
-                result[match] = section_name
-
-    if debug >= DebugLevel.DEBUG_MODULES.value:
-        for key, value in result.items():
-            print(f"get_section_names: sections {key} = {value}")
-
     return result
 
 def produce_output_modules(config, symbol_list, name_occurrences,
@@ -449,16 +404,17 @@ def produce_output_modules(config, symbol_list, name_occurrences,
       Nothing is returned, but as a side effect of this function execution,
       the module's object file contains the aliases for duplicated symbols.
     """
+    debug_print(DebugLevel.DEBUG_ALL.value, "produce_output_modules computation starts here ")
     objcopy_args = "";
     args_cnt = 0
-    objdump_data = get_objdump_text(config.objdump_file, module_file_name)
-    elf_section_names = get_section_names(objdump_data)
-    init_text_section_data = get_init_text_info(objdump_data)
-    for obj in symbol_list:
-        if (name_occurrences[obj.name] > 1) and process_line(obj, config.process_data_sym, init_text_section_data):
-            decoration = generate_decoration(obj, config, addr2line_process)
+    section_map = get_symbol2section(config.objdump_file, module_file_name)
+    for module_symbol in symbol_list:
+        debug_print(DebugLevel.DEBUG_ALL.value, f"--> Processing {module_symbol}")
+        if (name_occurrences[module_symbol.name] > 1) and process_line(module_symbol, config.process_data_sym, section_map):
+            decoration = generate_decoration(module_symbol, config, addr2line_process)
+            debug_print(DebugLevel.DEBUG_ALL.value, f"--- {module_symbol} occurred multiple times and is a candidate for alias: decoration '{decoration}'")
             if decoration != "":
-                objcopy_args = objcopy_args + make_objcpy_arg(obj, decoration, elf_section_names)
+                objcopy_args = objcopy_args + make_objcpy_arg(module_symbol, decoration, section_map)
                 args_cnt = args_cnt + 1
                 if args_cnt > 50:
                    debug_print(DebugLevel.DEBUG_MODULES.value, "Number of arguments high, split objcopy"
@@ -484,11 +440,13 @@ def produce_output_vmlinux(config, symbol_list, name_occurrences, addr2line_proc
       the core kernel image contains the aliases for duplicated symbols.
     """
     with open(config.output_file, 'w') as output_file:
-        for obj in symbol_list:
+       for obj in symbol_list:
             output_file.write(f"{obj.address} {obj.type} {obj.name}\n")
             if (name_occurrences[obj.name] > 1) and process_line(obj, config.process_data_sym, None):
                 decoration = generate_decoration(obj, config, addr2line_process)
+                debug_print(DebugLevel.DEBUG_ALL.value, f"Symbol {obj.name} appears multiple times, and decoration is {decoration}")
                 if decoration != "":
+                    debug_print(DebugLevel.DEBUG_ALL.value, f"Writing on {config.output_file} the additional '{obj.address} {obj.type} {obj.name + decoration}'")
                     output_file.write(f"{obj.address} {obj.type} {obj.name + decoration}\n")
 
 if __name__ == "__main__":
@@ -496,43 +454,43 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Add alias to multiple occurring symbols name in kallsyms')
     subparsers = parser.add_subparsers(title='Subcommands', dest='action')
     core_image_parser = subparsers.add_parser('core_image', help='Operates for in tree computation.')
-    core_image_parser.add_argument('-a', "--addr2line", dest="addr2line_file", required=True, help="Set the addr2line executable to be used.")
-    core_image_parser.add_argument('-b', "--basedir", dest="linux_base_dir", required=True, help="Set base directory of the source kernel code.")
-    core_image_parser.add_argument('-c', "--objcopy", dest="objcopy_file", required=True, help="Set the objcopy executable to be used.")
-    core_image_parser.add_argument('-d', "--process_data", dest="process_data_sym", required=False, help="Requires the tool to process data symbols along with text symbols.", action='store_true')
-    core_image_parser.add_argument('-e', "--nm", dest="nm_file", required=True, help="Set the nm executable to be used.")
-    core_image_parser.add_argument('-m', "--modules_list", dest="module_list", required=True, help="Set the file containing the list of the modules object files.")
     core_image_parser.add_argument('-n', "--nmdata", dest="nm_data_file", required=True, help="Set vmlinux nm output file to use for core image.")
     core_image_parser.add_argument('-o', "--outfile", dest="output_file", required=True, help="Set the vmlinux nm output file containing aliases.")
-    core_image_parser.add_argument('-s', "--separator", dest="separator", required=False, help="Set separator, character that separates original name from the addr2line data in alias symbols.", default="@", type=SeparatorType())
-    core_image_parser.add_argument('-u', "--objdump", dest="objdump_file", required=True, help="Set objdump  executable to be used.")
     core_image_parser.add_argument('-v', "--vmlinux", dest="vmlinux_file", required=True, help="Set the vmlinux core image file.")
 
     modules_parser = subparsers.add_parser('modules', help='Operates for out of tree computation.')
-    modules_parser.add_argument('-a', "--dummy", dest="dummy", required=True, help="place holder")
+    modules_parser.add_argument('-c', "--objcopy", dest="objcopy_file", required=True, help="Set the objcopy executable to be used.")
+    modules_parser.add_argument('-u', "--objdump", dest="objdump_file", required=True, help="Set objdump  executable to be used.")
 
-    parser.add_argument('-j', "--symbol_frequency", dest="symbol_frequency_file", required=True, help="Specify the symbol frequency needed to use for producing aliases in out of tree modules compilation")
+    parser.add_argument('-j', "--symbol_frequency", dest="symbol_frequency_file", required=True, help="Specify the symbol frequency needed to use for producing aliases")
+    parser.add_argument('-k', "--symbol_module", dest="module_symbol_list_file", required=True, help="Specify the module symbols data file needed to use for producing aliases")
     parser.add_argument('-z', "--debug", dest="debug", required=False, help="Set the debug level.", choices=[f"{level.value}" for level in DebugLevel], default="1" )
+    parser.add_argument('-a', "--addr2line", dest="addr2line_file", required=True, help="Set the addr2line executable to be used.")
+    parser.add_argument('-b', "--basedir", dest="linux_base_dir", required=True, help="Set base directory of the source kernel code.")
+    parser.add_argument('-s', "--separator", dest="separator", required=False, help="Set separator, character that separates original name from the addr2line data in alias symbols.", default="@", type=SeparatorType())
+    parser.add_argument('-d', "--process_data", dest="process_data_sym", required=False, help="Requires the tool to process data symbols along with text symbols.", action='store_true')
+    parser.add_argument('-m', "--modules_list", dest="module_list", required=True, help="Set the file containing the list of the modules object files.")
+    parser.add_argument('-e', "--nm", dest="nm_file", required=True, help="Set the nm executable to be used.")
 
     config = parser.parse_args()
     debug = int(config.debug)
-    if config.action == 'core_image':
-        try:
-            debug_print(DebugLevel.INFO.value,"Start processing")
+
+    try:
+        if config.action == 'core_image':
+            debug_print(DebugLevel.INFO.value,"Start core_image processing")
 
             # Determine kernel source code base directory
             if not config.linux_base_dir.startswith('/'):
                 config.linux_base_dir = os.path.normpath(os.getcwd() + "/" + config.linux_base_dir) + "/"
             debug_print(DebugLevel.DEBUG_BASIC.value, f"Configuration: {config}")
-            debug_print(DebugLevel.INFO.value, "Process nm data from vmlinux")
 
+            debug_print(DebugLevel.INFO.value, "Process nm data from vmlinux")
             # Process nm data from vmlinux
             debug_print(DebugLevel.DEBUG_BASIC.value, f"fetch_file_lines({config.nm_data_file})")
             vmlinux_nm_lines = fetch_file_lines(config.nm_data_file)
             vmlinux_symbol_list, name_occurrences = parse_nm_lines(vmlinux_nm_lines)
 
             debug_print(DebugLevel.INFO.value,"Process nm data for modules")
-
             # Process nm data for modules
             debug_print(DebugLevel.DEBUG_BASIC.value, f"fetch_file_lines({config.nm_data_file})")
             module_list = fetch_file_lines(config.module_list)
@@ -541,10 +499,18 @@ if __name__ == "__main__":
                 module_nm_lines = do_nm(module, config.nm_file)
                 module_symbol_list[module], name_occurrences = parse_nm_lines(module_nm_lines, name_occurrences)
 
-            debug_print(DebugLevel.INFO.value, "Save symbol_frequency ")
+            debug_print(DebugLevel.INFO.value, "Save name_occurrences data")
             with open(config.symbol_frequency_file, 'w') as file:
                 for key, value in name_occurrences.items():
                     file.write(f"{key}:{value}\n")
+
+            debug_print(DebugLevel.INFO.value, "Save module_symbol_list data")
+            with open(config.module_symbol_list_file, 'w') as file:
+                for key, value in module_symbol_list.items():
+                    file.write(f"{key}:\n")
+                    for line in value:
+                        file.write(f"{line.address},{line.type},{line.name},{line.addr_int}\n")
+                    file.write("---\n")
 
             debug_print(DebugLevel.INFO.value, "Produce file for vmlinux")
             # Produce file for vmlinux
@@ -556,33 +522,53 @@ if __name__ == "__main__":
             addr2line_process.stderr.close()
             addr2line_process.wait()
 
-            # link-vmlinux.sh calls this two times: Avoid running kas_alias twice for efficiency
-            # and prevent duplicate aliases in module processing by checking the last letter of
-            # the nm data file
-            if config.vmlinux_file and config.vmlinux_file[-1] == '2':
-                debug_print(DebugLevel.INFO.value, "Add aliases to module files")
+        elif config.action == 'modules':
+            debug_print(DebugLevel.INFO.value,"Start modules processing")
+            name_occurrences = {}
+            with open(config.symbol_frequency_file, 'r') as file:
+                for line in file:
+                    key, value = line.strip().split(':')
+                    name_occurrences[key]=int(value)
+            module_symbol_list = {}
+            with open(config.module_symbol_list_file, 'r') as file:
+                current_key = None
+                current_list = []
+                for line in file:
+                    line = line.strip()
+                    if line.startswith("---"):
+                        module_symbol_list[current_key] = current_list
+                        current_key = None
+                        current_list = []
+                    elif line.endswith(":"):
+                        current_key = line[:-1]
+                    else:
+                        data = line.split(',')
+                        data[-1] = int(data[-1])
+                        current_list.append(Line(*data))
 
-                # Add aliases to module files
-                for module in module_list:
-                    debug_print(DebugLevel.DEBUG_BASIC.value, f"addr2line_process({module}, {config.addr2line_file})")
-                    addr2line_process = start_addr2line_process(module, config.addr2line_file)
-                    produce_output_modules(config, module_symbol_list[module], name_occurrences, module, addr2line_process)
-                    addr2line_process.stdin.close()
-                    addr2line_process.stdout.close()
-                    addr2line_process.stderr.close()
-                    addr2line_process.wait()
-            else:
-                debug_print(DebugLevel.INFO.value, "Skip module processing if pass is not the second")
+            debug_print(DebugLevel.INFO.value, "Add aliases to module files")
+            module_list = fetch_file_lines(config.module_list)
+            # Add aliases to module files
+            for module in module_list:
+                debug_print(DebugLevel.DEBUG_BASIC.value, f"addr2line_process({module}, {config.addr2line_file})")
+                addr2line_process = start_addr2line_process(module, config.addr2line_file)
+                # Custom modules compiled out-of-tree are not part of module_symbol_list, so before proceeding, they need to be added
+                if module not in module_symbol_list:
+                   debug_print(DebugLevel.DEBUG_BASIC.value, f"module '{module}' not in list, possibly custom OOT, fetching symbol data.")
+                   module_nm_lines = do_nm(module, config.nm_file)
+                   module_symbol_list[module], name_occurrences = parse_nm_lines(module_nm_lines, name_occurrences)
 
-        except Exception as e:
-            raise SystemExit(f"Script terminated due to an error: {e}")
+                debug_print(DebugLevel.DEBUG_ALL.value, f"executing produce_output_modules on {module}")
+                produce_output_modules(config, module_symbol_list[module], name_occurrences, module, addr2line_process)
+                addr2line_process.stdin.close()
+                addr2line_process.stdout.close()
+                addr2line_process.stderr.close()
+                addr2line_process.wait()
 
-    elif config.action == 'modules':
-        print("wip")
-        name_occurrences = {}
-        with open(config.symbol_frequency_file, 'r') as file:
-            for line in file:
-                key, value = line.strip().split(':')
-                name_occurrences[key]=int(value)
-        print(name_occurrences)
+        else:
+            raise SystemExit("Script terminated: unknown action")
 
+    except Exception as e:
+        exception_type = type(e).__name__
+        error_message = str(e)
+        raise SystemExit(f"Script terminated due to an error ({exception_type}): {error_message}")
