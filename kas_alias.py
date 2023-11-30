@@ -13,7 +13,7 @@ import subprocess
 from enum import Enum
 from collections import namedtuple
 
-# Regex representing symbols that needs no alias
+# Regex representing symbols that need no alias
 regex_filter = [
         "^__compound_literal\\.[0-9]+$",
         "^__[wm]*key\\.[0-9]+$",
@@ -59,9 +59,10 @@ Line = namedtuple('Line', ['address', 'type', 'name', 'addr_int'])
 
 def get_caller():
     """
+    Used only to produce debug messages:
     Gets the caller's caller name if any, "kas_alias" otherwise
     Args:
-      Nonw
+      None
     Returns:
       A string representing a name of a function.
     """
@@ -171,10 +172,7 @@ def process_line(line, process_data_sym, section_map):
     Determines whether a duplicate item requires an alias or not.
     Args:
       line: nm line object that needs to be checked.
-      process_data_sym: Flag indicating that the script requires to produce alias
-                        also for data symbols.
-      init_section_info: Map containing the size and the base address of the
-                         .init.text section.
+      section_map: map correlating symbols and the ELF section they are from
     Returns:
       Returns true if the line needs to be processed, false otherwise.
     """
@@ -189,8 +187,7 @@ def process_line(line, process_data_sym, section_map):
           if (".init" in section_map[line.name] or ".exit" in section_map[line.name]):
               return False
        else:
-          raise NameError("Division by zero is not allowed")
-
+          raise NameError(f"can't find a section for the {line.name}")
 
     if process_data_sym:
         return not (any(re.match(regex, line.name) for regex in regex_filter))
@@ -225,20 +222,20 @@ def do_nm(filename, nm_executable):
     Returns:
       Returns a strings list representing the nm output.
     """
-    # Later, during processing, objcopy cannot modify files in place when
-    # adding new alias symbols. It requires a source file and a destination
-    # file.
-    # After this operation, there is an object file ".o" with the aliases and
-    # a ".k{0,1}o.orig" file, which is the old intended object and serves as the
-    # source for objcopy.
-    # In a fresh build, the state is just fine.
-    # However, in a second build without clean, an issue arises.
-    # The ".k{0,1}o" file already contain the alias, and reprocessing it, do
-    # corrupt the final result. To address this, do_nm must check if the file
-    # ".k{0,1}o.orig" already exists.
-    # If it does, that's the target for nm and must be renamed in ".k{0,1}o"
-    # to restore the intended state. If not, it's a fresh build, and nm can
-    # proceed with the ".k{0,1}o" file.
+    # Subsequently, during processing, objcopy cannot directly modify files in
+    # place while adding new alias symbols.
+    # It necessitates both a source and a destination file.
+    # Consequently, after this operation, there exists an object file ".o"
+    # containing the aliases, along with a ".k{0,1}o.orig" file serving as the
+    # original intended object file, acting as the source for objcopy.
+    # In a clean build, the situation remains unaffected.
+    # However, in a subsequent build without cleaning, an issue arises.
+    # The ".k{0,1}o" file already contains the aliases, and reprocessing it
+    # would compromise the final outcome. To mitigate this issue, 'do_nm'
+    # needs to verify the existence of the ".k{0,1}o.orig" file.
+    # If this file exists, it becomes the target for nm and must be renamed
+    # as ".k{0,1}o" to restore the intended state. If it doesn't exist, it
+    # indicates a fresh build, and nm can proceed with the ".k{0,1}o" file.
     backup_file = filename + '.orig'
     if os.path.exists(backup_file):
         print(f"do_nm: {filename} is not clean, restore {backup_file} to {filename}")
@@ -261,19 +258,15 @@ def make_objcpy_arg(line, decoration, section_map):
       line: nm line object target for this iteration.
       decoration: String representing the decoration (normalized addr2line
                   output) to be added at the symbol name to have the alias.
-      elf_section_names: List of the section names that can be used by objcopy
-                         to add a symbol to the ELF symbol table.
+      section_map: map correlating symbols and the ELF section they are from
     Returns:
       Returns a string that directly maps the argument string objcopy should
       use to add the alias.
     """
     try:
         flag = "global" if line.type.isupper() else "local"
-
         debug_print(DebugLevel.DEBUG_MODULES.value,
                  f"{line.name + decoration}={section_map[line.name]}:0x{line.address},{flag}")
-
-
         return (
                 "--add-symbol "
                 f"{line.name + decoration}={section_map[line.name]}:0x{line.address},{flag} "
@@ -347,20 +340,20 @@ def generate_decoration(line, config, addr2line_process):
     # The addr2line can emit the special string "?:??" when addr2line can not find the
     # specified address in the DWARF section that after normalization it becomes "____".
     # In such cases, emitting an alias wouldn't make sense, so it is skipped.
-    # ==============================================================================================> __quirk.0@___0
     if decoration != config.separator + "____":
        return decoration
     return ""
 
 def get_symbol2section(objdump_executable, file_to_operate):
     """
-    symbols in the init/exit section are discarded just after the loading 
-    process. It make sense to avoid make any alias for those.
+    This function aims to produce a map{symbol_name]=section_name for
+    any given object file.
     Args:
       objdump_executable: String representing the objdump executable.
       file_to_operate: file whose section names are wanted.
     Returns:
-      Returns a map, where the key is the symbol name and the vaue is True
+      Returns a map, where the key is the symbol name and the vaue is
+      a section name.
     """
     try:
         output = subprocess.check_output(
@@ -368,7 +361,6 @@ def get_symbol2section(objdump_executable, file_to_operate):
                    universal_newlines=True)
         section_pattern = re.compile(r'^ *[0-9]+ ([.a-z_]+) +([0-9a-f]+).*$', re.MULTILINE)
         section_names = section_pattern.findall(output)
-#        debug_print(DebugLevel.DEBUG_ALL.value, f"Sections fount -> {section_names}")
         result = {}
         for section, section_siza in section_names:
             if int(section_siza, 16) != 0:
@@ -396,7 +388,7 @@ def produce_output_modules(config, symbol_list, name_occurrences,
       config: Object containing command line configuration.
       symbol_list: List of tuples representing nm lines for the given object
                    file.
-      name_occurrences: Hash that stores symbol occurreces for the build.
+      name_occurrences: Hash that stores symbol occurrences for the build.
       module_file_name: String representing the target moule object file.
       addr2line_process: Descriptor of the addr2line process that is wanted to
                          handle the query.
@@ -476,6 +468,8 @@ if __name__ == "__main__":
     debug = int(config.debug)
 
     try:
+        # The core_image target is utilized for gathering symbol statistics from the core image and modules,
+        # generating aliases for the core image. This target is designed to be invoked from scripts/link-vmlinux.sh
         if config.action == 'core_image':
             debug_print(DebugLevel.INFO.value,"Start core_image processing")
 
@@ -522,29 +516,48 @@ if __name__ == "__main__":
             addr2line_process.stderr.close()
             addr2line_process.wait()
 
+        # Expects to be called from scripts/Makefile.modfinal
         elif config.action == 'modules':
             debug_print(DebugLevel.INFO.value,"Start modules processing")
             name_occurrences = {}
-            with open(config.symbol_frequency_file, 'r') as file:
-                for line in file:
-                    key, value = line.strip().split(':')
-                    name_occurrences[key]=int(value)
+            # This code expects to open and read config.symbol_frequency_file, which defaults
+            # to modules.symbfreq, to fetch module symbol statistics.
+            # In a complete build, this file is generated in an earlier step of the build phase,
+            # so the expectation is fulfilled.
+            # However, when building a custom OOT, it is necessary to ensure that this file is
+            # accessible in the current directory where the module source code is being built.
+            try:
+                with open(config.symbol_frequency_file, 'r') as file:
+                    for line in file:
+                        key, value = line.strip().split(':')
+                        name_occurrences[key]=int(value)
+            except FileNotFoundError:
+                pass
+
             module_symbol_list = {}
-            with open(config.module_symbol_list_file, 'r') as file:
-                current_key = None
-                current_list = []
-                for line in file:
-                    line = line.strip()
-                    if line.startswith("---"):
-                        module_symbol_list[current_key] = current_list
-                        current_key = None
-                        current_list = []
-                    elif line.endswith(":"):
-                        current_key = line[:-1]
-                    else:
-                        data = line.split(',')
-                        data[-1] = int(data[-1])
-                        current_list.append(Line(*data))
+            # This segment assumes the existence of config.module_symbol_list_file, which defaults
+            # to modules.symbmod, containing module data resulting from previous computations when
+            # core image symbol aliases were added.
+            # In the case of a custom OOT module, the file is not expected to exist;
+            # if it does, it will be loaded, although its contents are unlikely to be utilized.
+            try:
+                with open(config.module_symbol_list_file, 'r') as file:
+                    current_key = None
+                    current_list = []
+                    for line in file:
+                        line = line.strip()
+                        if line.startswith("---"):
+                            module_symbol_list[current_key] = current_list
+                            current_key = None
+                            current_list = []
+                        elif line.endswith(":"):
+                            current_key = line[:-1]
+                        else:
+                            data = line.split(',')
+                            data[-1] = int(data[-1])
+                            current_list.append(Line(*data))
+            except FileNotFoundError:
+                pass
 
             debug_print(DebugLevel.INFO.value, "Add aliases to module files")
             module_list = fetch_file_lines(config.module_list)
@@ -552,7 +565,7 @@ if __name__ == "__main__":
             for module in module_list:
                 debug_print(DebugLevel.DEBUG_BASIC.value, f"addr2line_process({module}, {config.addr2line_file})")
                 addr2line_process = start_addr2line_process(module, config.addr2line_file)
-                # Custom modules compiled out-of-tree are not part of module_symbol_list, so before proceeding, they need to be added
+                # Custom modules compiled OOT are not part of module_symbol_list, so before proceeding, they need to be added
                 if module not in module_symbol_list:
                    debug_print(DebugLevel.DEBUG_BASIC.value, f"module '{module}' not in list, possibly custom OOT, fetching symbol data.")
                    module_nm_lines = do_nm(module, config.nm_file)
