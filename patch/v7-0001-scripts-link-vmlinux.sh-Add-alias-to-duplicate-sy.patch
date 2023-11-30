@@ -1,14 +1,14 @@
-From 564e2c7e298e03b566deba6e91bec7b83aaea789 Mon Sep 17 00:00:00 2001
+From 3edbc9f26290b67c95f1af1180b73b1b557d9011 Mon Sep 17 00:00:00 2001
 From: "Alessandro Carminati (Red Hat)" <alessandro.carminati@gmail.com>
 Date: Sat, 9 Sep 2023 08:50:39 +0000
 Subject: [PATCH v7] scripts/link-vmlinux.sh: Add alias to duplicate symbols
  for kallsyms
 Content-type: text/plain
 
-In the kernel environment, situations frequently arise where identical names
-are shared among symbols within both the core image and modules. While this
-doesn't pose issues for the kernel's binary itself, it complicates trace or
-probe operations using tools like kprobe.
+In the kernel environment, situations frequently arise where identical
+names are shared among symbols within both the core image and modules.
+While this doesn't pose issues for the kernel's binary itself, it
+complicates trace or probe operations using tools like kprobe.
 
 This patch introduces "kas_alias" to address this challenge.
 
@@ -37,16 +37,45 @@ Example:
 Consider the symbol "device_show", you can expect an output like the
 following:
 
- ~ # cat /proc/kallsyms | grep " device_show"
- ffffffff963cd2a0 t device_show
- ffffffff963cd2a0 t device_show@drivers_pci_pci_sysfs_c_49
- ffffffff96454b60 t device_show
- ffffffff96454b60 t device_show@drivers_virtio_virtio_c_16
- ffffffff966e1700 T device_show_ulong
- ffffffff966e1740 T device_show_int
- ffffffff966e1770 T device_show_bool
- ffffffffc04e10a0 t device_show [mmc_core]
- ffffffffc04e10a0 t device_show@drivers_mmc_core_sdio_bus_c_45  [mmc_core]
+ ~ # cat /proc/kallsyms | grep " name_show"
+ffffcaa2bb4f01c8 t name_show
+ffffcaa2bb4f01c8 t name_show@kernel_irq_irqdesc_c_264
+ffffcaa2bb9c1a30 t name_show
+ffffcaa2bb9c1a30 t name_show@drivers_pnp_card_c_186
+ffffcaa2bbac4754 t name_show
+ffffcaa2bbac4754 t name_show@drivers_regulator_core_c_678
+ffffcaa2bbba4900 t name_show
+ffffcaa2bbba4900 t name_show@drivers_base_power_wakeup_stats_c_93
+ffffcaa2bbec4038 t name_show
+ffffcaa2bbec4038 t name_show@drivers_rtc_sysfs_c_26
+ffffcaa2bbecc920 t name_show
+ffffcaa2bbecc920 t name_show@drivers_i2c_i2c_core_base_c_660
+ffffcaa2bbed3840 t name_show
+ffffcaa2bbed3840 t name_show@drivers_i2c_i2c_dev_c_100
+ffffcaa2bbef7210 t name_show
+ffffcaa2bbef7210 t name_show@drivers_pps_sysfs_c_66
+ffffcaa2bbf03328 t name_show
+ffffcaa2bbf03328 t name_show@drivers_hwmon_hwmon_c_72
+ffffcaa2bbff6f3c t name_show
+ffffcaa2bbff6f3c t name_show@drivers_remoteproc_remoteproc_sysfs_c_215
+ffffcaa2bbff8d78 t name_show
+ffffcaa2bbff8d78 t name_show@drivers_rpmsg_rpmsg_core_c_455
+ffffcaa2bbfff7a4 t name_show
+ffffcaa2bbfff7a4 t name_show@drivers_devfreq_devfreq_c_1395
+ffffcaa2bc001f60 t name_show
+ffffcaa2bc001f60 t name_show@drivers_extcon_extcon_c_389
+ffffcaa2bc009890 t name_show
+ffffcaa2bc009890 t name_show@drivers_iio_industrialio_core_c_1396
+ffffcaa2bc01212c t name_show
+ffffcaa2bc01212c t name_show@drivers_iio_industrialio_trigger_c_51
+ffffcaa2bc025e2c t name_show
+ffffcaa2bc025e2c t name_show@drivers_fpga_fpga_mgr_c_618
+ffffcaa2a052102c t name_show	[hello]
+ffffcaa2a052102c t name_show@hello_hello_c_8	[hello]
+ffffcaa2a051955c t name_show	[rpmsg_char]
+ffffcaa2a051955c t name_show@drivers_rpmsg_rpmsg_char_c_365	[rpmsg_char]
+
+where hello, is a plain helloworld module built OOT.
 
 Tested-by: Masami Hiramatsu (Google) <mhiramat@kernel.org>
 Signed-off-by: Alessandro Carminati (Red Hat) <alessandro.carminati@gmail.com>
@@ -300,7 +329,7 @@ index 8568d256d6fb..20f42b5a7e16 100644
  # optimization, we don't need to read them if the target does not
 diff --git a/scripts/kas_alias.py b/scripts/kas_alias.py
 new file mode 100755
-index 000000000000..895f5cb5db7d
+index 000000000000..1f9369621064
 --- /dev/null
 +++ b/scripts/kas_alias.py
 @@ -0,0 +1,587 @@
@@ -493,7 +522,7 @@ index 000000000000..895f5cb5db7d
 +          if (".init" in section_map[line.name] or ".exit" in section_map[line.name]):
 +              return False
 +       else:
-+          raise NameError(f"can't find a section for the {line.name}")
++          return False
 +
 +    if process_data_sym:
 +        return not (any(re.match(regex, line.name) for regex in regex_filter))
