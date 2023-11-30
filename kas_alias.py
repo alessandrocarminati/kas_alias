@@ -187,7 +187,7 @@ def process_line(line, process_data_sym, section_map):
           if (".init" in section_map[line.name] or ".exit" in section_map[line.name]):
               return False
        else:
-          raise NameError(f"can't find a section for the {line.name}")
+          return False
 
     if process_data_sym:
         return not (any(re.match(regex, line.name) for regex in regex_filter))
