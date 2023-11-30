@@ -352,7 +352,7 @@ def get_symbol2section(objdump_executable, file_to_operate):
       objdump_executable: String representing the objdump executable.
       file_to_operate: file whose section names are wanted.
     Returns:
-      Returns a map, where the key is the symbol name and the vaue is
+      Returns a map, where the key is the symbol name and the value is
       a section name.
     """
     try:
@@ -375,7 +375,7 @@ def get_symbol2section(objdump_executable, file_to_operate):
 
     except Exception as e:
         raise SystemExit(
-                         "Fatal: Cant create init_exit symbol map"
+                         "Fatal: Can't create init_exit symbol map"
                          f" using {file_to_operate}. Error: {e}"
                         )
     return result
