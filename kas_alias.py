@@ -334,6 +334,9 @@ def generate_decoration(line, config, addr2line_process):
     if output.startswith(absolute_base_dir):
         output = output[len(absolute_base_dir):]
 
+    if output.startswith('/'):
+            output = output[1:]
+
     decoration = config.separator + "".join(
         "_" if not c.isalnum() else c for c in output
     )
