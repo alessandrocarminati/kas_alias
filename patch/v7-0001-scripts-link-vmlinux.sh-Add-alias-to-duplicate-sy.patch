@@ -1,4 +1,4 @@
-From 3edbc9f26290b67c95f1af1180b73b1b557d9011 Mon Sep 17 00:00:00 2001
+From 5a2eaeab75b8b93ed5aef29da81257d0a75e8edd Mon Sep 17 00:00:00 2001
 From: "Alessandro Carminati (Red Hat)" <alessandro.carminati@gmail.com>
 Date: Sat, 9 Sep 2023 08:50:39 +0000
 Subject: [PATCH v7] scripts/link-vmlinux.sh: Add alias to duplicate symbols
@@ -167,7 +167,7 @@ https://lore.kernel.org/all/20230927173516.1456594-1-alessandro.carminati@gmail.
 
 Changes from v6:
 * Generate a file to facilitate the construction of custom OOT modules using aliases.
-  In this context, it is crucial to export the modules.symbfreq file, a product of
+  In this context, it is needed to export the modules.symbfreq file, a product of
   the build.
 * Previously, kas_alias was intended to run once, executing all tasks within the same
   session. In this version, two targets have been introduced to split the work into
@@ -180,16 +180,16 @@ Changes from v6:
   rewrite.
 * kas_alias is now capable of applying aliases to OOT modules. However, for this to
   occur, the 'modules.symbfreq' file needs to be accessible during the build.
-  If it is not found, aliases will not be added.
+  If it is not found, aliases won't be added.
 
 https://lore.kernel.org/all/20231024201157.748254-1-alessandro.carminati@gmail.com/
 ---
  Makefile                  |  14 +-
  init/Kconfig              |  22 ++
  scripts/Makefile.modfinal |  31 +-
- scripts/kas_alias.py      | 587 ++++++++++++++++++++++++++++++++++++++
+ scripts/kas_alias.py      | 590 ++++++++++++++++++++++++++++++++++++++
  scripts/link-vmlinux.sh   |  27 +-
- 5 files changed, 676 insertions(+), 5 deletions(-)
+ 5 files changed, 679 insertions(+), 5 deletions(-)
  create mode 100755 scripts/kas_alias.py
 
 diff --git a/Makefile b/Makefile
@@ -329,10 +329,10 @@ index 8568d256d6fb..20f42b5a7e16 100644
  # optimization, we don't need to read them if the target does not
 diff --git a/scripts/kas_alias.py b/scripts/kas_alias.py
 new file mode 100755
-index 000000000000..1f9369621064
+index 000000000000..4774824ff157
 --- /dev/null
 +++ b/scripts/kas_alias.py
-@@ -0,0 +1,587 @@
+@@ -0,0 +1,590 @@
 +#!/usr/bin/env python3
 +# SPDX-License-Identifier: GPL-2.0-only
 +#
@@ -668,6 +668,9 @@ index 000000000000..1f9369621064
 +
 +    if output.startswith(absolute_base_dir):
 +        output = output[len(absolute_base_dir):]
++
++    if output.startswith('/'):
++            output = output[1:]
 +
 +    decoration = config.separator + "".join(
 +        "_" if not c.isalnum() else c for c in output
