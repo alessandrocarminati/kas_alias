@@ -457,7 +457,7 @@ def produce_output_vmlinux(config, symbol_list, name_occurrences, addr2line_proc
                     debug_print(DebugLevel.DEBUG_ALL.value, f"Writing on {config.output_file} the additional '{obj.address} {obj.type} {obj.name + decoration}'")
                     output_file.write(f"{obj.address} {obj.type} {obj.name + decoration}\n")
 
-if __name__ == "__main__":
+def main():
     #register signal handlers
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
@@ -636,3 +636,6 @@ if __name__ == "__main__":
         exception_type = type(e).__name__
         error_message = str(e)
         save_journal_and_exit(-2, type(e).__name__, str(e))
+
+if __name__ == "__main__":
+    main()
