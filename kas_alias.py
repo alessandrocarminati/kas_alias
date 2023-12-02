@@ -13,6 +13,7 @@ import inspect
 import argparse
 import subprocess
 from enum import Enum
+from functools import partial
 from collections import namedtuple
 
 # Regex representing symbols that need no alias
@@ -58,16 +59,15 @@ class Addr2LineError(Exception):
 debug = DebugLevel.PRODUCTION
 
 modules_journal = {}
-journal_fn = "modules.journal"
 Line = namedtuple('Line', ['address', 'type', 'name', 'addr_int'])
 
-def handle_signal(signum, frame):
-    save_journal_and_exit(-2, "signal", "termination/ctrl-c")
+def handle_signal(config, signum, frame):
+    save_journal_and_exit(config, -2, "signal", "termination/ctrl-c")
 
-def save_journal_and_exit(exit_cause, exception_type, error_message):
+def save_journal_and_exit(config, exit_cause, exception_type, error_message):
     if exit_cause != 0:
-        if journal_fn != "None":
-            with open(journal_fn, 'w') as file:
+        if config.journal_file != "None":
+            with open(config.journal_file, 'w') as file:
                 for key, value in modules_journal.items():
                     file.write(f"{key}:{value}\n")
 
@@ -458,10 +458,6 @@ def produce_output_vmlinux(config, symbol_list, name_occurrences, addr2line_proc
                     output_file.write(f"{obj.address} {obj.type} {obj.name + decoration}\n")
 
 def main():
-    #register signal handlers
-    signal.signal(signal.SIGINT, handle_signal)
-    signal.signal(signal.SIGTERM, handle_signal)
-
     # Handles command-line arguments and generates a config object
     parser = argparse.ArgumentParser(description='Add alias to multiple occurring symbols name in kallsyms')
     subparsers = parser.add_subparsers(title='Subcommands', dest='action')
@@ -488,7 +484,10 @@ def main():
 
     config = parser.parse_args()
     debug = int(config.debug)
-    journal_fn = config.journal_file
+
+    #register signal handlers
+    signal.signal(signal.SIGINT, partial(handle_signal, config))
+    signal.signal(signal.SIGTERM, partial(handle_signal, config))
 
     try:
         # The core_image target is utilized for gathering symbol statistics from the core image and modules,
@@ -522,8 +521,8 @@ def main():
                 for key, value in name_occurrences.items():
                     file.write(f"{key}:{value}\n")
 
-            debug_print(DebugLevel.INFO.value, "Save {journal_fn} data")
-            with open(journal_fn, 'w') as file:
+            debug_print(DebugLevel.INFO.value, "Save {config.journal_file} data")
+            with open(config.journal_file, 'w') as file:
                 for key, value in modules_journal.items():
                     file.write(f"{key}:{value}\n")
 
@@ -549,7 +548,7 @@ def main():
         elif config.action == 'modules':
             debug_print(DebugLevel.INFO.value,"Start modules processing")
             try:
-                with open(journal_fn, 'r') as file:
+                with open(config.journal_file, 'r') as file:
                     for line in file:
                         key, value = line.strip().split(':')
                         modules_journal[key]=int(value)
