@@ -469,10 +469,12 @@ if __name__ == "__main__":
     core_image_parser.add_argument('-n', "--nmdata", dest="nm_data_file", required=True, help="Set vmlinux nm output file to use for core image.")
     core_image_parser.add_argument('-o', "--outfile", dest="output_file", required=True, help="Set the vmlinux nm output file containing aliases.")
     core_image_parser.add_argument('-v', "--vmlinux", dest="vmlinux_file", required=True, help="Set the vmlinux core image file.")
+    core_image_parser.add_argument('-l', "--journal", dest="journal_file", required=False, help="Sets a filename for jounal.")
 
     modules_parser = subparsers.add_parser('modules', help='Operates for out of tree computation.')
     modules_parser.add_argument('-c', "--objcopy", dest="objcopy_file", required=True, help="Set the objcopy executable to be used.")
     modules_parser.add_argument('-u', "--objdump", dest="objdump_file", required=True, help="Set objdump  executable to be used.")
+    modules_parser.add_argument('-l', "--journal", dest="journal_file", required=False, help="Sets a filename for jounal.")
 
     parser.add_argument('-j', "--symbol_frequency", dest="symbol_frequency_file", required=True, help="Specify the symbol frequency needed to use for producing aliases")
     parser.add_argument('-k', "--symbol_module", dest="module_symbol_list_file", required=True, help="Specify the module symbols data file needed to use for producing aliases")
@@ -486,6 +488,7 @@ if __name__ == "__main__":
 
     config = parser.parse_args()
     debug = int(config.debug)
+    journal_fn = config.journal_file
 
     try:
         # The core_image target is utilized for gathering symbol statistics from the core image and modules,
