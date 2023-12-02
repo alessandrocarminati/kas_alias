@@ -135,7 +135,7 @@ def parse_nm_lines(lines, name_occurrences=None):
 
     return symbol_list, name_occurrences
 
-def start_addr2line_process(binary_file, addr2line_file):
+def start_addr2line_process(binary_file, config):
     """
     Initializes an addr2line server process operating on the given ELF object.
     Args:
@@ -148,7 +148,7 @@ def start_addr2line_process(binary_file, addr2line_file):
     debug_print(DebugLevel.DEBUG_BASIC.value, f"Starting addr2line process on {binary_file}")
 
     try:
-        addr2line_process = subprocess.Popen([addr2line_file, '-fe',
+        addr2line_process = subprocess.Popen([config.addr2line_file, '-fe',
                                              binary_file],
                                              stdin=subprocess.PIPE,
                                              stdout=subprocess.PIPE,
@@ -535,7 +535,7 @@ if __name__ == "__main__":
             debug_print(DebugLevel.INFO.value, "Produce file for vmlinux")
             # Produce file for vmlinux
             debug_print(DebugLevel.DEBUG_BASIC.value, f"addr2line_process({config.vmlinux_file}, {config.addr2line_file})")
-            addr2line_process = start_addr2line_process(config.vmlinux_file, config.addr2line_file)
+            addr2line_process = start_addr2line_process(config.vmlinux_file, config)
             produce_output_vmlinux(config, vmlinux_symbol_list, name_occurrences, addr2line_process)
             addr2line_process.stdin.close()
             addr2line_process.stdout.close()
@@ -610,7 +610,7 @@ if __name__ == "__main__":
 
                 modules_journal[module] = 1
                 debug_print(DebugLevel.DEBUG_BASIC.value, f"addr2line_process({module}, {config.addr2line_file})")
-                addr2line_process = start_addr2line_process(module, config.addr2line_file)
+                addr2line_process = start_addr2line_process(module, config)
                 # Custom modules compiled OOT are not part of module_symbol_list, so before proceeding, they need to be added
                 if module not in module_symbol_list:
                    debug_print(DebugLevel.DEBUG_BASIC.value, f"module '{module}' not in list, possibly custom OOT, fetching symbol data.")
