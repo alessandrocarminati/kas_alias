@@ -56,25 +56,28 @@ class SeparatorType:
 class Addr2LineError(Exception):
     pass
 
-debug = DebugLevel.PRODUCTION
+#debug = DebugLevel.PRODUCTION
 
 modules_journal = {}
 Line = namedtuple('Line', ['address', 'type', 'name', 'addr_int'])
 
 def handle_signal(config, signum, frame):
-    save_journal_and_exit(config, -2, "signal", "termination/ctrl-c")
+    config.exit_cause = -2
+    config.exception_type = "signal"
+    config.error_message = "termination/ctrl-c"
+    save_journal_and_exit(config)
 
-def save_journal_and_exit(config, exit_cause, exception_type, error_message):
-    if exit_cause != 0:
+def save_journal_and_exit(config):
+    if config.exit_cause != 0:
         if config.journal_file != "None":
             with open(config.journal_file, 'w') as file:
                 for key, value in modules_journal.items():
                     file.write(f"{key}:{value}\n")
 
-        if exit_cause <= -2:
-            print(f"Script terminated due to an error ({exception_type}): {error_message}")
+        if config.exit_cause <= -2:
+            print(f"Script terminated due to an error ({config.exception_type}): {config.error_message}")
 
-    sys.exit(exit_cause)
+    sys.exit(config.exit_cause)
 
 def get_caller():
     """
@@ -93,7 +96,7 @@ def get_caller():
     else:
         return "kas_alias"
 
-def debug_print(print_debug_level, text):
+def debug_print(config, print_debug_level, text):
     """
     Prints text if current debug level is greater or equal to print_debug_level.
     Args:
@@ -103,10 +106,10 @@ def debug_print(print_debug_level, text):
     Returns:
       Nothing.
     """
-    if debug >= print_debug_level:
+    if int(config.debug) >= print_debug_level:
         print(f"{get_caller()}: " + text)
 
-def parse_nm_lines(lines, name_occurrences=None):
+def parse_nm_lines(config, lines, name_occurrences=None):
     """
     Parses a given nm output and returns the symbol list along with a hash of
     symbol occurrences.
@@ -118,7 +121,7 @@ def parse_nm_lines(lines, name_occurrences=None):
       Creates a new line list proper for the nm output it parsed and, updates
       the occurrences hash.
     """
-    debug_print(DebugLevel.DEBUG_BASIC.value, "parse_nm_lines: parse start")
+    debug_print(config, DebugLevel.DEBUG_BASIC.value, "parse_nm_lines: parse start")
 
     if name_occurrences is None:
         name_occurrences = {}
@@ -145,7 +148,7 @@ def start_addr2line_process(binary_file, config):
     Returns:
       Returns addr2line process descriptor.
     """
-    debug_print(DebugLevel.DEBUG_BASIC.value, f"Starting addr2line process on {binary_file}")
+    debug_print(config, DebugLevel.DEBUG_BASIC.value, f"Starting addr2line process on {binary_file}")
 
     try:
         addr2line_process = subprocess.Popen([config.addr2line_file, '-fe',
@@ -156,9 +159,12 @@ def start_addr2line_process(binary_file, config):
                                              text=True)
         return addr2line_process
     except Exception as e:
-        save_journal_and_exit(-2, type(e).__name__, str(e))
+        config.exit_cause = -2
+        config.exception_type = type(e).__name__
+        config.error_message = str(e)
+        save_journal_and_exit(config)
 
-def addr2line_fetch_address(addr2line_process, address):
+def addr2line_fetch_address(config, addr2line_process, address):
     """
     Queries a specific address using the active addr2line process.
     Args:
@@ -170,7 +176,7 @@ def addr2line_fetch_address(addr2line_process, address):
       at the specified address has been defined. The address is normalized
       before being returned.
   """
-    debug_print(DebugLevel.DEBUG_ALL.value, f"Resolving {address}")
+    debug_print(config, DebugLevel.DEBUG_ALL.value, f"Resolving {address}")
 
     try:
         addr2line_process.stdin.write(address + '\n')
@@ -180,9 +186,12 @@ def addr2line_fetch_address(addr2line_process, address):
 
         return os.path.normpath(output)
     except Exception as e:
-        save_journal_and_exit(-2, type(e).__name__, str(e))
+        config.exit_cause = -2
+        config.exception_type = type(e).__name__
+        config.error_message = str(e)
+        save_journal_and_exit(config)
 
-def process_line(line, process_data_sym, section_map):
+def process_line(line, config, section_map):
     """
     Determines whether a duplicate item requires an alias or not.
     Args:
@@ -191,7 +200,7 @@ def process_line(line, process_data_sym, section_map):
     Returns:
       Returns true if the line needs to be processed, false otherwise.
     """
-    debug_print(DebugLevel.DEBUG_ALL.value, f"Processing {line.address} {line.type} {line.name}")
+    debug_print(config, DebugLevel.DEBUG_ALL.value, f"Processing {line.address} {line.type} {line.name}")
 
     # The module contains symbols that were discarded after being loaded. Typically,
     # these symbols belong to the initialization function. These symbols have their
@@ -204,13 +213,13 @@ def process_line(line, process_data_sym, section_map):
        else:
           return False
 
-    if process_data_sym:
+    if config.process_data_sym:
         return not (any(re.match(regex, line.name) for regex in regex_filter))
     else:
         return (line.type in {"T", "t"}) and (
                 not (any(re.match(regex, line.name) for regex in regex_filter)))
 
-def fetch_file_lines(filename):
+def fetch_file_lines(config, filename):
     """
     Reads a text file and retrieves its content.
     Args:
@@ -218,16 +227,19 @@ def fetch_file_lines(filename):
     Returns:
       Returns a string list representing the lines read in the file.
     """
-    debug_print(DebugLevel.DEBUG_BASIC.value, f"Fetch {filename}")
+    debug_print(config, DebugLevel.DEBUG_BASIC.value, f"Fetch {filename}")
 
     try:
         with open(filename, 'r') as file:
             lines = [line.strip() for line in file.readlines()]
         return lines
     except FileNotFoundError:
-        save_journal_and_exit(-2, type(FileNotFoundError).__name__, str(FileNotFoundError))
+        config.exit_cause = -2
+        config.exception_type = type(FileNotFoundError).__name__
+        config.error_message = str(FileNotFoundError)
+        save_journal_and_exit(config)
 
-def do_nm(filename, nm_executable):
+def do_nm(filename, config):
     """
     Runs the nm command on a specified file.
     Args:
@@ -237,16 +249,19 @@ def do_nm(filename, nm_executable):
     Returns:
       Returns a strings list representing the nm output.
     """
-    debug_print(DebugLevel.DEBUG_BASIC.value, f"executing {nm_executable} -n {filename}")
+    debug_print(config, DebugLevel.DEBUG_BASIC.value, f"executing {config.nm_file} -n {filename}")
 
     try:
-        nm_output = subprocess.check_output([nm_executable, '-n', filename],
+        nm_output = subprocess.check_output([config.nm_file, '-n', filename],
                       universal_newlines=True, stderr=subprocess.STDOUT).splitlines()
         return nm_output
     except subprocess.CalledProcessError as e:
+        config.exit_cause = -2
+        config.exception_type = type(e).__name__
+        config.error_message = str(e)
         save_journal_and_exit(-2, type(e).__name__, str(e))
 
-def make_objcpy_arg(line, decoration, section_map):
+def make_objcpy_arg(config, line, decoration, section_map):
     """
     Produces an objcopy argument statement for a single alias to be added in a
     module.
@@ -261,7 +276,7 @@ def make_objcpy_arg(line, decoration, section_map):
     """
     try:
         flag = "global" if line.type.isupper() else "local"
-        debug_print(DebugLevel.DEBUG_MODULES.value,
+        debug_print(config, DebugLevel.DEBUG_MODULES.value,
                  f"{line.name + decoration}={section_map[line.name]}:0x{line.address},{flag}")
         return (
                 "--add-symbol "
@@ -273,7 +288,7 @@ def make_objcpy_arg(line, decoration, section_map):
               f" type {line.type} because no corresponding section found.")
         return ""
 
-def execute_objcopy(objcopy_executable, objcopy_args, object_file):
+def execute_objcopy(config, objcopy_args, object_file):
     """
     Uses objcopy to add aliases to a given module object file.
     Since objcopy can't operate in place, the original object file is renamed
@@ -290,21 +305,22 @@ def execute_objcopy(objcopy_executable, objcopy_args, object_file):
     """
     # Rename the original object file by adding a suffix
     backup_file = object_file + '.orig'
-    debug_print(DebugLevel.DEBUG_MODULES.value, f"rename {object_file} to {backup_file}")
+    debug_print(config, DebugLevel.DEBUG_MODULES.value, f"rename {object_file} to {backup_file}")
     os.rename(object_file, backup_file)
 
     full_command = (
-                    f"{objcopy_executable} "
+                    f"{config.objcopy_file} "
                     f"{objcopy_args} {backup_file} {object_file}"
                    )
-    debug_print(DebugLevel.DEBUG_MODULES.value, f"executing {full_command}")
+    debug_print(config, DebugLevel.DEBUG_MODULES.value, f"executing {full_command}")
 
     try:
         subprocess.run(full_command, shell=True, check=True)
     except subprocess.CalledProcessError as e:
-        save_journal_and_exit(-2, type(e).__name__, str(e))
-#        os.rename(backup_file, object_file)
-#        raise SystemExit(f"Fatal: Error executing objcopy: {e}")
+        config.exit_cause = -2
+        config.exception_type = type(e).__name__
+        config.error_message = str(e)
+        save_journal_and_exit(config)
 
 def generate_decoration(line, config, addr2line_process):
     """
@@ -320,7 +336,7 @@ def generate_decoration(line, config, addr2line_process):
       or empty string if this can not be done. E.g., addr2line can't find
       the point where the symbol is defined.
     """
-    output = addr2line_fetch_address(addr2line_process, line.address)
+    output = addr2line_fetch_address(config, addr2line_process, line.address)
     base_dir = config.linux_base_dir + "/"
     cwd = os.getcwd() + "/"
     absolute_base_dir = os.path.abspath(os.path.join(cwd, base_dir))
@@ -359,7 +375,7 @@ def section_interesting(section):
             return True
     return False
 
-def get_symbol2section(objdump_executable, file_to_operate):
+def get_symbol2section(config, file_to_operate):
     """
     This function aims to produce a map{symbol_name]=section_name for
     any given object file.
@@ -372,17 +388,17 @@ def get_symbol2section(objdump_executable, file_to_operate):
     """
     try:
         output = subprocess.check_output(
-                   [objdump_executable, '-h', file_to_operate],
+                   [config.objdump_file, '-h', file_to_operate],
                    universal_newlines=True)
         section_pattern = re.compile(r'^ *[0-9]+ ([.a-z_]+) +([0-9a-f]+).*$', re.MULTILINE)
         section_names = section_pattern.findall(output)
         result = {}
         for section, section_siza in section_names:
             if int(section_siza, 16) != 0 and section_interesting(section):
-                debug_print(DebugLevel.DEBUG_ALL.value, f"CMD => {objdump_executable} -tj {section} {file_to_operate}")
+                debug_print(config, DebugLevel.DEBUG_ALL.value, f"CMD => {config.objdump_file} -tj {section} {file_to_operate}")
                 try:
                     output = subprocess.check_output(
-                           [objdump_executable, '-tj', section, file_to_operate],
+                           [config.objdump_file, '-tj', section, file_to_operate],
                            universal_newlines=True)
                 except subprocess.CalledProcessError:
                       pass
@@ -393,7 +409,10 @@ def get_symbol2section(objdump_executable, file_to_operate):
 
 
     except Exception as e:
-        save_journal_and_exit(-2, type(e).__name__, str(e))
+        config.exit_cause = -2
+        config.exception_type = type(e).__name__
+        config.error_message = str(e)
+        save_journal_and_exit(config)
     return result
 
 def produce_output_modules(config, symbol_list, name_occurrences,
@@ -412,26 +431,26 @@ def produce_output_modules(config, symbol_list, name_occurrences,
       Nothing is returned, but as a side effect of this function execution,
       the module's object file contains the aliases for duplicated symbols.
     """
-    debug_print(DebugLevel.DEBUG_ALL.value, "produce_output_modules computation starts here ")
+    debug_print(config, DebugLevel.DEBUG_ALL.value, "produce_output_modules computation starts here ")
     objcopy_args = "";
     args_cnt = 0
-    section_map = get_symbol2section(config.objdump_file, module_file_name)
+    section_map = get_symbol2section(config, module_file_name)
     for module_symbol in symbol_list:
-        debug_print(DebugLevel.DEBUG_ALL.value, f"--> Processing {module_symbol}")
-        if (name_occurrences[module_symbol.name] > 1) and process_line(module_symbol, config.process_data_sym, section_map):
+        debug_print(config, DebugLevel.DEBUG_ALL.value, f"--> Processing {module_symbol}")
+        if (name_occurrences[module_symbol.name] > 1) and process_line(module_symbol, config, section_map):
             decoration = generate_decoration(module_symbol, config, addr2line_process)
-            debug_print(DebugLevel.DEBUG_ALL.value, f"--- {module_symbol} occurred multiple times and is a candidate for alias: decoration '{decoration}'")
+            debug_print(config, DebugLevel.DEBUG_ALL.value, f"--- {module_symbol} occurred multiple times and is a candidate for alias: decoration '{decoration}'")
             if decoration != "":
-                objcopy_args = objcopy_args + make_objcpy_arg(module_symbol, decoration, section_map)
+                objcopy_args = objcopy_args + make_objcpy_arg(config, module_symbol, decoration, section_map)
                 args_cnt = args_cnt + 1
                 if args_cnt > 50:
-                   debug_print(DebugLevel.DEBUG_MODULES.value, "Number of arguments high, split objcopy"
+                   debug_print(config, DebugLevel.DEBUG_MODULES.value, "Number of arguments high, split objcopy"
                                " call into multiple statements.")
-                   execute_objcopy(config.objcopy_file, objcopy_args, module_file_name)
+                   execute_objcopy(config, objcopy_args, module_file_name)
                    args_cnt = 0
                    objcopy_args = ""
 
-    execute_objcopy(config.objcopy_file, objcopy_args, module_file_name)
+    execute_objcopy(config, objcopy_args, module_file_name)
 
 def produce_output_vmlinux(config, symbol_list, name_occurrences, addr2line_process):
     """
@@ -450,11 +469,11 @@ def produce_output_vmlinux(config, symbol_list, name_occurrences, addr2line_proc
     with open(config.output_file, 'w') as output_file:
        for obj in symbol_list:
             output_file.write(f"{obj.address} {obj.type} {obj.name}\n")
-            if (name_occurrences[obj.name] > 1) and process_line(obj, config.process_data_sym, None):
+            if (name_occurrences[obj.name] > 1) and process_line(obj, config, None):
                 decoration = generate_decoration(obj, config, addr2line_process)
-                debug_print(DebugLevel.DEBUG_ALL.value, f"Symbol {obj.name} appears multiple times, and decoration is {decoration}")
+                debug_print(config,DebugLevel.DEBUG_ALL.value, f"Symbol {obj.name} appears multiple times, and decoration is {decoration}")
                 if decoration != "":
-                    debug_print(DebugLevel.DEBUG_ALL.value, f"Writing on {config.output_file} the additional '{obj.address} {obj.type} {obj.name + decoration}'")
+                    debug_print(config, DebugLevel.DEBUG_ALL.value, f"Writing on {config.output_file} the additional '{obj.address} {obj.type} {obj.name + decoration}'")
                     output_file.write(f"{obj.address} {obj.type} {obj.name + decoration}\n")
 
 def main():
@@ -483,7 +502,6 @@ def main():
     parser.add_argument('-e', "--nm", dest="nm_file", required=True, help="Set the nm executable to be used.")
 
     config = parser.parse_args()
-    debug = int(config.debug)
 
     #register signal handlers
     signal.signal(signal.SIGINT, partial(handle_signal, config))
@@ -493,40 +511,40 @@ def main():
         # The core_image target is utilized for gathering symbol statistics from the core image and modules,
         # generating aliases for the core image. This target is designed to be invoked from scripts/link-vmlinux.sh
         if config.action == 'core_image':
-            debug_print(DebugLevel.INFO.value,"Start core_image processing")
+            debug_print(config, DebugLevel.INFO.value,"Start core_image processing")
 
             # Determine kernel source code base directory
             if not config.linux_base_dir.startswith('/'):
                 config.linux_base_dir = os.path.normpath(os.getcwd() + "/" + config.linux_base_dir) + "/"
-            debug_print(DebugLevel.DEBUG_BASIC.value, f"Configuration: {config}")
+            debug_print(config, DebugLevel.DEBUG_BASIC.value, f"Configuration: {config}")
 
-            debug_print(DebugLevel.INFO.value, "Process nm data from vmlinux")
+            debug_print(config, DebugLevel.INFO.value, "Process nm data from vmlinux")
             # Process nm data from vmlinux
-            debug_print(DebugLevel.DEBUG_BASIC.value, f"fetch_file_lines({config.nm_data_file})")
-            vmlinux_nm_lines = fetch_file_lines(config.nm_data_file)
-            vmlinux_symbol_list, name_occurrences = parse_nm_lines(vmlinux_nm_lines)
+            debug_print(config, DebugLevel.DEBUG_BASIC.value, f"fetch_file_lines({config.nm_data_file})")
+            vmlinux_nm_lines = fetch_file_lines(config, config.nm_data_file)
+            vmlinux_symbol_list, name_occurrences = parse_nm_lines(config, vmlinux_nm_lines)
 
-            debug_print(DebugLevel.INFO.value,"Process nm data for modules")
+            debug_print(config, DebugLevel.INFO.value,"Process nm data for modules")
             # Process nm data for modules
-            debug_print(DebugLevel.DEBUG_BASIC.value, f"fetch_file_lines({config.nm_data_file})")
-            module_list = fetch_file_lines(config.module_list)
+            debug_print(config, DebugLevel.DEBUG_BASIC.value, f"fetch_file_lines({config.nm_data_file})")
+            module_list = fetch_file_lines(config, config.module_list)
             module_symbol_list = {}
             for module in module_list:
                 modules_journal[module] = 0
-                module_nm_lines = do_nm(module, config.nm_file)
-                module_symbol_list[module], name_occurrences = parse_nm_lines(module_nm_lines, name_occurrences)
+                module_nm_lines = do_nm(module, config)
+                module_symbol_list[module], name_occurrences = parse_nm_lines(config, module_nm_lines, name_occurrences)
 
-            debug_print(DebugLevel.INFO.value, f"Save name_occurrences data: {config.symbol_frequency_file}")
+            debug_print(config, DebugLevel.INFO.value, f"Save name_occurrences data: {config.symbol_frequency_file}")
             with open(config.symbol_frequency_file, 'w') as file:
                 for key, value in name_occurrences.items():
                     file.write(f"{key}:{value}\n")
 
-            debug_print(DebugLevel.INFO.value, "Save {config.journal_file} data")
+            debug_print(config, DebugLevel.INFO.value, "Save {config.journal_file} data")
             with open(config.journal_file, 'w') as file:
                 for key, value in modules_journal.items():
                     file.write(f"{key}:{value}\n")
 
-            debug_print(DebugLevel.INFO.value, f"Save module_symbol_list data: {config.module_symbol_list_file}")
+            debug_print(config, DebugLevel.INFO.value, f"Save module_symbol_list data: {config.module_symbol_list_file}")
             with open(config.module_symbol_list_file, 'w') as file:
                 for key, value in module_symbol_list.items():
                     file.write(f"{key}:\n")
@@ -534,9 +552,9 @@ def main():
                         file.write(f"{line.address},{line.type},{line.name},{line.addr_int}\n")
                     file.write("---\n")
 
-            debug_print(DebugLevel.INFO.value, "Produce file for vmlinux")
+            debug_print(config, DebugLevel.INFO.value, "Produce file for vmlinux")
             # Produce file for vmlinux
-            debug_print(DebugLevel.DEBUG_BASIC.value, f"addr2line_process({config.vmlinux_file}, {config.addr2line_file})")
+            debug_print(config, DebugLevel.DEBUG_BASIC.value, f"addr2line_process({config.vmlinux_file}, {config.addr2line_file})")
             addr2line_process = start_addr2line_process(config.vmlinux_file, config)
             produce_output_vmlinux(config, vmlinux_symbol_list, name_occurrences, addr2line_process)
             addr2line_process.stdin.close()
@@ -546,7 +564,7 @@ def main():
 
         # Expects to be called from scripts/Makefile.modfinal
         elif config.action == 'modules':
-            debug_print(DebugLevel.INFO.value,"Start modules processing")
+            debug_print(config, DebugLevel.INFO.value,"Start modules processing")
             try:
                 with open(config.journal_file, 'r') as file:
                     for line in file:
@@ -596,30 +614,30 @@ def main():
             except FileNotFoundError:
                 pass
 
-            debug_print(DebugLevel.INFO.value, "Add aliases to module files")
-            module_list = fetch_file_lines(config.module_list)
+            debug_print(config, DebugLevel.INFO.value, "Add aliases to module files")
+            module_list = fetch_file_lines(config, config.module_list)
             # Add aliases to module files
             for module in module_list:
                 if modules_journal[module] == 1:
-                    debug_print(DebugLevel.DEBUG_ALL.value, f"{module} is half done: check if restore's needed")
+                    debug_print(config, DebugLevel.DEBUG_ALL.value, f"{module} is half done: check if restore's needed")
                     backup_file = module + '.orig'
                     if os.path.exists(backup_file):
-                        debug_print(DebugLevel.INFO.value, f"restore: {module} is not clean, restore {backup_file}")
+                        debug_print(config, DebugLevel.INFO.value, f"restore: {module} is not clean, restore {backup_file}")
                         os.rename(backup_file, module)
                 elif modules_journal[module] == 2:
-                    debug_print(DebugLevel.DEBUG_ALL.value, f"skipping {module}: already done")
+                    debug_print(config, DebugLevel.DEBUG_ALL.value, f"skipping {module}: already done")
                     continue
 
                 modules_journal[module] = 1
-                debug_print(DebugLevel.DEBUG_BASIC.value, f"addr2line_process({module}, {config.addr2line_file})")
+                debug_print(config, DebugLevel.DEBUG_BASIC.value, f"addr2line_process({module}, {config.addr2line_file})")
                 addr2line_process = start_addr2line_process(module, config)
                 # Custom modules compiled OOT are not part of module_symbol_list, so before proceeding, they need to be added
                 if module not in module_symbol_list:
-                   debug_print(DebugLevel.DEBUG_BASIC.value, f"module '{module}' not in list, possibly custom OOT, fetching symbol data.")
-                   module_nm_lines = do_nm(module, config.nm_file)
-                   module_symbol_list[module], name_occurrences = parse_nm_lines(module_nm_lines, name_occurrences)
+                   debug_print(config, DebugLevel.DEBUG_BASIC.value, f"module '{module}' not in list, possibly custom OOT, fetching symbol data.")
+                   module_nm_lines = do_nm(module, config)
+                   module_symbol_list[module], name_occurrences = parse_nm_lines(config, module_nm_lines, name_occurrences)
 
-                debug_print(DebugLevel.DEBUG_ALL.value, f"executing produce_output_modules on {module}")
+                debug_print(config, DebugLevel.DEBUG_ALL.value, f"executing produce_output_modules on {module}")
                 produce_output_modules(config, module_symbol_list[module], name_occurrences, module, addr2line_process)
                 addr2line_process.stdin.close()
                 addr2line_process.stdout.close()
@@ -631,10 +649,10 @@ def main():
             raise SystemExit("Script terminated: unknown action")
 
     except Exception as e:
-        exit_cause = -2
-        exception_type = type(e).__name__
-        error_message = str(e)
-        save_journal_and_exit(-2, type(e).__name__, str(e))
+        config.exit_cause = -2
+        config.exception_type = type(e).__name__
+        config.error_message = str(e)
+        save_journal_and_exit(config)
 
 if __name__ == "__main__":
     main()
