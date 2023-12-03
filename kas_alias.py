@@ -530,6 +530,14 @@ def read_name_occurrences(config):
 
     return name_occurrences
 
+def check_aliases(config, module_nm_lines):
+   prev = None
+   for line in module_nm_lines:
+       if ('@' in line.name and line.name.split(config.separator)[0] == prev):
+           return False
+       prev = line.name
+   return True
+
 def main():
     # Handles command-line arguments and generates a config object
     parser = argparse.ArgumentParser(description='Add alias to multiple occurring symbols name in kallsyms')
@@ -539,20 +547,27 @@ def main():
     core_image_parser.add_argument('-o', "--outfile", dest="output_file", required=True, help="Set the vmlinux nm output file containing aliases.")
     core_image_parser.add_argument('-v', "--vmlinux", dest="vmlinux_file", required=True, help="Set the vmlinux core image file.")
     core_image_parser.add_argument('-l', "--journal", dest="journal_file", required=False, help="Sets a filename for jounal.")
+    core_image_parser.add_argument('-m', "--modules_list", dest="module_list", required=True, help="Set the file containing the list of the modules object files.")
+    core_image_parser.add_argument('-k', "--symbol_module", dest="module_symbol_list_file", required=False, help="Specify the module symbols data file needed to use for producing aliases")
 
     modules_parser = subparsers.add_parser('modules', help='Operates for out of tree computation.')
     modules_parser.add_argument('-c', "--objcopy", dest="objcopy_file", required=True, help="Set the objcopy executable to be used.")
     modules_parser.add_argument('-u', "--objdump", dest="objdump_file", required=True, help="Set objdump  executable to be used.")
     modules_parser.add_argument('-l', "--journal", dest="journal_file", required=False, help="Sets a filename for jounal.")
+    modules_parser.add_argument('-m', "--modules_list", dest="module_list", required=True, help="Set the file containing the list of the modules object files.")
+    modules_parser.add_argument('-k', "--symbol_module", dest="module_symbol_list_file", required=True, help="Specify the module symbols data file needed to use for producing aliases")
+
+    single_module_parser = subparsers.add_parser('single_module', help='Operates for out of tree computation.')
+    single_module_parser.add_argument('-c', "--objcopy", dest="objcopy_file", required=True, help="Set the objcopy executable to be used.")
+    single_module_parser.add_argument('-u', "--objdump", dest="objdump_file", required=True, help="Set objdump  executable to be used.")
+    single_module_parser.add_argument('-q', "--target-module", dest="target_module", required=False, help="Sets a tharget module to operate.")
 
     parser.add_argument('-j', "--symbol_frequency", dest="symbol_frequency_file", required=True, help="Specify the symbol frequency needed to use for producing aliases")
-    parser.add_argument('-k', "--symbol_module", dest="module_symbol_list_file", required=True, help="Specify the module symbols data file needed to use for producing aliases")
     parser.add_argument('-z', "--debug", dest="debug", required=False, help="Set the debug level.", choices=[f"{level.value}" for level in DebugLevel], default="1" )
     parser.add_argument('-a', "--addr2line", dest="addr2line_file", required=True, help="Set the addr2line executable to be used.")
     parser.add_argument('-b', "--basedir", dest="linux_base_dir", required=True, help="Set base directory of the source kernel code.")
     parser.add_argument('-s', "--separator", dest="separator", required=False, help="Set separator, character that separates original name from the addr2line data in alias symbols.", default="@", type=SeparatorType())
     parser.add_argument('-d', "--process_data", dest="process_data_sym", required=False, help="Requires the tool to process data symbols along with text symbols.", action='store_true')
-    parser.add_argument('-m', "--modules_list", dest="module_list", required=True, help="Set the file containing the list of the modules object files.")
     parser.add_argument('-e', "--nm", dest="nm_file", required=True, help="Set the nm executable to be used.")
 
     config = parser.parse_args()
@@ -663,8 +678,25 @@ def main():
                 config.modules_journal[module] = 2
 
         # Expects to be called from scripts/Makefile.modfinal
-        elif config.action == 'single-module':
-             print("place holder")
+        elif config.action == 'single_module':
+             debug_print(config, DebugLevel.INFO.value,"Start single_module processing")
+             # read simbol name frequency file
+             name_occurrences = read_name_occurrences(config)
+             # scan current module
+             module_nm_lines = do_nm(config.target_module, config)
+             mudule_nm_data, _ = parse_nm_lines(config, module_nm_lines)
+             if check_aliases(config, mudule_nm_data,):
+                 debug_print(config, DebugLevel.DEBUG_BASIC.value, f"addr2line_process({config.target_module}, {config.addr2line_file})")
+                 addr2line_process = start_addr2line_process(config.target_module, config)
+                 debug_print(config, DebugLevel.DEBUG_BASIC.value,"adding aliases to module")
+                 produce_output_modules(config, mudule_nm_data, name_occurrences, config.target_module, addr2line_process)
+                 addr2line_process.stdin.close()
+                 addr2line_process.stdout.close()
+                 addr2line_process.stderr.close()
+                 addr2line_process.wait()
+             else:
+                 debug_print(config, DebugLevel.INFO.value,"module is already aliased, skipping")
+
         else:
             raise SystemExit("Script terminated: unknown action")
 
