@@ -58,7 +58,6 @@ class Addr2LineError(Exception):
 
 #debug = DebugLevel.PRODUCTION
 
-modules_journal = {}
 Line = namedtuple('Line', ['address', 'type', 'name', 'addr_int'])
 
 def handle_signal(config, signum, frame):
@@ -71,7 +70,7 @@ def save_journal_and_exit(config):
     if config.exit_cause != 0:
         if config.journal_file != "None":
             with open(config.journal_file, 'w') as file:
-                for key, value in modules_journal.items():
+                for key, value in config.modules_journal.items():
                     file.write(f"{key}:{value}\n")
 
         if config.exit_cause <= -2:
@@ -476,6 +475,61 @@ def produce_output_vmlinux(config, symbol_list, name_occurrences, addr2line_proc
                     debug_print(config, DebugLevel.DEBUG_ALL.value, f"Writing on {config.output_file} the additional '{obj.address} {obj.type} {obj.name + decoration}'")
                     output_file.write(f"{obj.address} {obj.type} {obj.name + decoration}\n")
 
+def read_module_symbol_list(config):
+    # This function, is responsible for reading the module_list from a file.
+    # For the "modules" action, it assumes the presence of config.module_symbol_list_file,
+    # which should contain module data generated from the computations of the "core_image"
+    # action.
+    # In the case of a custom OOT module, the file has no use, so it is not expected to
+    # exist, but if it does, it will be loaded, but its contents not used.
+    module_symbol_list = {}
+    if config.module_symbol_list_file is not None:
+        try:
+            with open(config.module_symbol_list_file, 'r') as file:
+                current_key = None
+                current_list = []
+                for line in file:
+                    line = line.strip()
+                    if line.startswith("---"):
+                        module_symbol_list[current_key] = current_list
+                        current_key = None
+                        current_list = []
+                    elif line.endswith(":"):
+                        current_key = line[:-1]
+                    else:
+                        data = line.split(',')
+                        data[-1] = int(data[-1])
+                        current_list.append(Line(*data))
+
+        except FileNotFoundError:
+            pass
+
+    return module_symbol_list
+
+def read_name_occurrences(config):
+    name_occurrences = {}
+    # This code reads occurrences of symbol names from a file containing both the core image
+    # and modules frequencies resulted from the computation of the "core_image" action.
+    # It reads from the file specified by command-line arguments; if the file doesn't exist
+    # or the filename isn't specified, it returns an empty map.
+    # The code relies on accessing and reading config.symbol_frequency_file containing
+    # symbol name frequencies.
+    # In a complete build, this file is generated during the "core image" action earlier
+    # in the build process.
+    # However, when building a custom OOT module, it is needed to ensure that this file
+    # is accessible in the current directory where the module source code is being built.
+    # Not having this file result in a module that have no aliases even if they are needed
+    if config.symbol_frequency_file is not None:
+        try:
+            with open(config.symbol_frequency_file, 'r') as file:
+                for line in file:
+                    key, value = line.strip().split(':')
+                    name_occurrences[key]=int(value)
+        except FileNotFoundError:
+            pass
+
+    return name_occurrences
+
 def main():
     # Handles command-line arguments and generates a config object
     parser = argparse.ArgumentParser(description='Add alias to multiple occurring symbols name in kallsyms')
@@ -502,7 +556,7 @@ def main():
     parser.add_argument('-e', "--nm", dest="nm_file", required=True, help="Set the nm executable to be used.")
 
     config = parser.parse_args()
-
+    config.modules_journal= {}
     #register signal handlers
     signal.signal(signal.SIGINT, partial(handle_signal, config))
     signal.signal(signal.SIGTERM, partial(handle_signal, config))
@@ -530,7 +584,7 @@ def main():
             module_list = fetch_file_lines(config, config.module_list)
             module_symbol_list = {}
             for module in module_list:
-                modules_journal[module] = 0
+                config.modules_journal[module] = 0
                 module_nm_lines = do_nm(module, config)
                 module_symbol_list[module], name_occurrences = parse_nm_lines(config, module_nm_lines, name_occurrences)
 
@@ -541,7 +595,7 @@ def main():
 
             debug_print(config, DebugLevel.INFO.value, "Save {config.journal_file} data")
             with open(config.journal_file, 'w') as file:
-                for key, value in modules_journal.items():
+                for key, value in config.modules_journal.items():
                     file.write(f"{key}:{value}\n")
 
             debug_print(config, DebugLevel.INFO.value, f"Save module_symbol_list data: {config.module_symbol_list_file}")
@@ -565,70 +619,33 @@ def main():
         # Expects to be called from scripts/Makefile.modfinal
         elif config.action == 'modules':
             debug_print(config, DebugLevel.INFO.value,"Start modules processing")
+            # read journal from file
             try:
                 with open(config.journal_file, 'r') as file:
                     for line in file:
                         key, value = line.strip().split(':')
-                        modules_journal[key]=int(value)
+                        config.modules_journal[key]=int(value)
             except FileNotFoundError:
                 pass
 
-
-            name_occurrences = {}
-            # This code expects to open and read config.symbol_frequency_file, which defaults
-            # to modules.symbfreq, to fetch module symbol statistics.
-            # In a complete build, this file is generated in an earlier step of the build phase,
-            # so the expectation is fulfilled.
-            # However, when building a custom OOT, it is necessary to ensure that this file is
-            # accessible in the current directory where the module source code is being built.
-            try:
-                with open(config.symbol_frequency_file, 'r') as file:
-                    for line in file:
-                        key, value = line.strip().split(':')
-                        name_occurrences[key]=int(value)
-            except FileNotFoundError:
-                pass
-
-            module_symbol_list = {}
-            # This segment assumes the existence of config.module_symbol_list_file, which defaults
-            # to modules.symbmod, containing module data resulting from previous computations when
-            # core image symbol aliases were added.
-            # In the case of a custom OOT module, the file is not expected to exist;
-            # if it does, it will be loaded, although its contents are unlikely to be utilized.
-            try:
-                with open(config.module_symbol_list_file, 'r') as file:
-                    current_key = None
-                    current_list = []
-                    for line in file:
-                        line = line.strip()
-                        if line.startswith("---"):
-                            module_symbol_list[current_key] = current_list
-                            current_key = None
-                            current_list = []
-                        elif line.endswith(":"):
-                            current_key = line[:-1]
-                        else:
-                            data = line.split(',')
-                            data[-1] = int(data[-1])
-                            current_list.append(Line(*data))
-            except FileNotFoundError:
-                pass
+            name_occurrences = read_name_occurrences(config)
+            module_symbol_list = read_module_symbol_list(config)
 
             debug_print(config, DebugLevel.INFO.value, "Add aliases to module files")
             module_list = fetch_file_lines(config, config.module_list)
             # Add aliases to module files
             for module in module_list:
-                if modules_journal[module] == 1:
+                if config.modules_journal[module] == 1:
                     debug_print(config, DebugLevel.DEBUG_ALL.value, f"{module} is half done: check if restore's needed")
                     backup_file = module + '.orig'
                     if os.path.exists(backup_file):
                         debug_print(config, DebugLevel.INFO.value, f"restore: {module} is not clean, restore {backup_file}")
                         os.rename(backup_file, module)
-                elif modules_journal[module] == 2:
+                elif config.modules_journal[module] == 2:
                     debug_print(config, DebugLevel.DEBUG_ALL.value, f"skipping {module}: already done")
                     continue
 
-                modules_journal[module] = 1
+                config.modules_journal[module] = 1
                 debug_print(config, DebugLevel.DEBUG_BASIC.value, f"addr2line_process({module}, {config.addr2line_file})")
                 addr2line_process = start_addr2line_process(module, config)
                 # Custom modules compiled OOT are not part of module_symbol_list, so before proceeding, they need to be added
@@ -643,8 +660,11 @@ def main():
                 addr2line_process.stdout.close()
                 addr2line_process.stderr.close()
                 addr2line_process.wait()
-                modules_journal[module] = 2
+                config.modules_journal[module] = 2
 
+        # Expects to be called from scripts/Makefile.modfinal
+        elif config.action == 'single-module':
+             print("place holder")
         else:
             raise SystemExit("Script terminated: unknown action")
 
