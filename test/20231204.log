@@ -1,0 +1,29 @@
+build for arm64
+ 546KiB 0:11:38 [ 800 B/s] [                                                                                                                                                    <=>                                                          ]
+Test core image build result success
+Test core image success
+Test modules success
+build for i386
+1.51MiB 0:37:29 [ 703 B/s] [                                                                                                                                            <=>                                                                  ]
+Test core image build result success
+Test core image success
+Test modules success
+build for mips32
+76.1KiB 0:03:00 [ 432 B/s] [                                                                                                                                                                                             <=>                 ]
+Test core image build result success
+Test core image success
+Test modules success
+build for x86_64
+ 130KiB 0:04:09 [ 534 B/s] [                                                 <=>                                                                                                                                                             ]
+x86_64 build result success
+Test core image success
+Test modules success
+build for x86_64w in tmp
+ 129KiB 0:04:10 [ 528 B/s] [                                                     <=>                                                                                                                                                         ]
+x86_64w in tmp build result success
+build for x86_64wo in tmp wo aliases
+ 129KiB 0:03:42 [ 594 B/s] [                                                         <=>                                                                                                                                                     ]
+x86_64wo build result success
+build for oot module aarch64
+10.3KiB 0:00:01 [10.1KiB/s] [        <=>                                                                                                                                                                                                     ]
+Test oot module aarch64success
