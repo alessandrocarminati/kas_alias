@@ -1,0 +1,13 @@
+scripts/kas_alias.py \
+	--symbol_frequency modules.symbfreq --debug 4 --nm aarch64-linux-gnu-nm --addr2line aarch64-linux-gnu-addr2line --basedir .. --separator @ --process_data
+	core_image \
+
+/scripts/kas_alias.py \
+	--symbol_frequency modules.symbfreq --debug 4 --nm aarch64-linux-gnu-nm --addr2line aarch64-linux-gnu-addr2line --basedir .. --separator @ --process_data 
+	modules \
+	--symbol_module modules.symbmod --objcopy aarch64-linux-gnu-objcopy --objdump aarch64-linux-gnu-objdump --journal modules.journal --modules_list modules.symbmod
+
+../scripts/kas_alias.py \
+	--symbol_frequency modules.symbfreq --debug 4 --addr2line aarch64-linux-gnu-addr2line --basedir .. --separator @ --process_data --nm aarch64-linux-gnu-nm \
+        single_module \
+	--objcopy aarch64-linux-gnu-objcopy --objdump aarch64-linux-gnu-objdump --target-module net/rfkill/rfkill.o.orig
