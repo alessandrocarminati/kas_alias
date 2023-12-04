@@ -8,12 +8,10 @@
 import os
 import re
 import sys
-import signal
 import inspect
 import argparse
 import subprocess
 from enum import Enum
-from functools import partial
 from collections import namedtuple
 
 # Regex representing symbols that need no alias
@@ -53,30 +51,7 @@ class SeparatorType:
             raise argparse.ArgumentTypeError("Separator must be a single character")
         return separator
 
-class Addr2LineError(Exception):
-    pass
-
-#debug = DebugLevel.PRODUCTION
-
 Line = namedtuple('Line', ['address', 'type', 'name', 'addr_int'])
-
-def handle_signal(config, signum, frame):
-    config.exit_cause = -2
-    config.exception_type = "signal"
-    config.error_message = "termination/ctrl-c"
-    save_journal_and_exit(config)
-
-def save_journal_and_exit(config):
-    if config.exit_cause != 0:
-        if config.journal_file != "None":
-            with open(config.journal_file, 'w') as file:
-                for key, value in config.modules_journal.items():
-                    file.write(f"{key}:{value}\n")
-
-        if config.exit_cause <= -2:
-            print(f"Script terminated due to an error ({config.exception_type}): {config.error_message}")
-
-    sys.exit(config.exit_cause)
 
 def get_caller():
     """
@@ -158,10 +133,8 @@ def start_addr2line_process(binary_file, config):
                                              text=True)
         return addr2line_process
     except Exception as e:
-        config.exit_cause = -2
-        config.exception_type = type(e).__name__
-        config.error_message = str(e)
-        save_journal_and_exit(config)
+        debug_print(config, DebugLevel.PRODUCTION.value, f"Script terminated due to an error ({type(e).__name__}): {str(e)}")
+        sys.exit(-2)
 
 def addr2line_fetch_address(config, addr2line_process, address):
     """
@@ -185,10 +158,8 @@ def addr2line_fetch_address(config, addr2line_process, address):
 
         return os.path.normpath(output)
     except Exception as e:
-        config.exit_cause = -2
-        config.exception_type = type(e).__name__
-        config.error_message = str(e)
-        save_journal_and_exit(config)
+        debug_print(config, DebugLevel.PRODUCTION.value, f"Script terminated due to an error ({type(e).__name__}): {str(e)}")
+        sys.exit(-2)
 
 def process_line(line, config, section_map):
     """
@@ -233,10 +204,8 @@ def fetch_file_lines(config, filename):
             lines = [line.strip() for line in file.readlines()]
         return lines
     except FileNotFoundError:
-        config.exit_cause = -2
-        config.exception_type = type(FileNotFoundError).__name__
-        config.error_message = str(FileNotFoundError)
-        save_journal_and_exit(config)
+        debug_print(config, DebugLevel.PRODUCTION.value, f"Script terminated due to an error ({type(FileNotFoundError).__name__}): {str(FileNotFoundError)}")
+        sys.exit(-2)
 
 def do_nm(filename, config):
     """
@@ -255,10 +224,8 @@ def do_nm(filename, config):
                       universal_newlines=True, stderr=subprocess.STDOUT).splitlines()
         return nm_output
     except subprocess.CalledProcessError as e:
-        config.exit_cause = -2
-        config.exception_type = type(e).__name__
-        config.error_message = str(e)
-        save_journal_and_exit(-2, type(e).__name__, str(e))
+        debug_print(config, DebugLevel.PRODUCTION.value, f"Script terminated due to an error ({type(e).__name__}): {str(e)}")
+        sys.exit(-2)
 
 def make_objcpy_arg(config, line, decoration, section_map):
     """
@@ -282,7 +249,7 @@ def make_objcpy_arg(config, line, decoration, section_map):
                 f"{line.name + decoration}={section_map[line.name]}:0x{line.address},{flag} "
                )
     except Exception:
-        print(
+        debug_print(config, DebugLevel.PRODUCTION.value,
               f"make_objcpy_arg warning: Skip alias for {line.name}"
               f" type {line.type} because no corresponding section found.")
         return ""
@@ -316,10 +283,8 @@ def execute_objcopy(config, objcopy_args, object_file):
     try:
         subprocess.run(full_command, shell=True, check=True)
     except subprocess.CalledProcessError as e:
-        config.exit_cause = -2
-        config.exception_type = type(e).__name__
-        config.error_message = str(e)
-        save_journal_and_exit(config)
+        debug_print(config, DebugLevel.PRODUCTION.value, f"Script terminated due to an error ({type(e).__name__}): {str(e)}")
+        sys.exit(-2)
 
 def generate_decoration(line, config, addr2line_process):
     """
@@ -408,10 +373,8 @@ def get_symbol2section(config, file_to_operate):
 
 
     except Exception as e:
-        config.exit_cause = -2
-        config.exception_type = type(e).__name__
-        config.error_message = str(e)
-        save_journal_and_exit(config)
+        debug_print(config, DebugLevel.PRODUCTION.value, f"Script terminated due to an error ({type(e).__name__}): {str(e)}")
+        sys.exit(-2)
     return result
 
 def produce_output_modules(config, symbol_list, name_occurrences,
@@ -436,19 +399,21 @@ def produce_output_modules(config, symbol_list, name_occurrences,
     section_map = get_symbol2section(config, module_file_name)
     for module_symbol in symbol_list:
         debug_print(config, DebugLevel.DEBUG_ALL.value, f"--> Processing {module_symbol}")
-        if (name_occurrences[module_symbol.name] > 1) and process_line(module_symbol, config, section_map):
-            decoration = generate_decoration(module_symbol, config, addr2line_process)
-            debug_print(config, DebugLevel.DEBUG_ALL.value, f"--- {module_symbol} occurred multiple times and is a candidate for alias: decoration '{decoration}'")
-            if decoration != "":
-                objcopy_args = objcopy_args + make_objcpy_arg(config, module_symbol, decoration, section_map)
-                args_cnt = args_cnt + 1
-                if args_cnt > 50:
-                   debug_print(config, DebugLevel.DEBUG_MODULES.value, "Number of arguments high, split objcopy"
-                               " call into multiple statements.")
-                   execute_objcopy(config, objcopy_args, module_file_name)
-                   args_cnt = 0
-                   objcopy_args = ""
-
+        try:
+            if (name_occurrences[module_symbol.name] > 1) and process_line(module_symbol, config, section_map):
+                decoration = generate_decoration(module_symbol, config, addr2line_process)
+                debug_print(config, DebugLevel.DEBUG_ALL.value, f"--- {module_symbol} occurred multiple times and is a candidate for alias: decoration '{decoration}'")
+                if decoration != "":
+                    objcopy_args = objcopy_args + make_objcpy_arg(config, module_symbol, decoration, section_map)
+                    args_cnt = args_cnt + 1
+                    if args_cnt > 50:
+                       debug_print(config, DebugLevel.DEBUG_MODULES.value, "Number of arguments high, split objcopy"
+                                   " call into multiple statements.")
+                       execute_objcopy(config, objcopy_args, module_file_name)
+                       args_cnt = 0
+                       objcopy_args = ""
+        except KeyError:
+            pass
     execute_objcopy(config, objcopy_args, module_file_name)
 
 def produce_output_vmlinux(config, symbol_list, name_occurrences, addr2line_process):
@@ -475,38 +440,19 @@ def produce_output_vmlinux(config, symbol_list, name_occurrences, addr2line_proc
                     debug_print(config, DebugLevel.DEBUG_ALL.value, f"Writing on {config.output_file} the additional '{obj.address} {obj.type} {obj.name + decoration}'")
                     output_file.write(f"{obj.address} {obj.type} {obj.name + decoration}\n")
 
-def read_module_symbol_list(config):
-    # This function, is responsible for reading the module_list from a file.
-    # For the "modules" action, it assumes the presence of config.module_symbol_list_file,
-    # which should contain module data generated from the computations of the "core_image"
-    # action.
-    # In the case of a custom OOT module, the file has no use, so it is not expected to
-    # exist, but if it does, it will be loaded, but its contents not used.
-    module_symbol_list = {}
-    if config.module_symbol_list_file is not None:
-        try:
-            with open(config.module_symbol_list_file, 'r') as file:
-                current_key = None
-                current_list = []
-                for line in file:
-                    line = line.strip()
-                    if line.startswith("---"):
-                        module_symbol_list[current_key] = current_list
-                        current_key = None
-                        current_list = []
-                    elif line.endswith(":"):
-                        current_key = line[:-1]
-                    else:
-                        data = line.split(',')
-                        data[-1] = int(data[-1])
-                        current_list.append(Line(*data))
-
-        except FileNotFoundError:
-            pass
-
-    return module_symbol_list
-
 def read_name_occurrences(config):
+    """
+    Reads symbol frequencies from the file specified in the 'config' argument.
+
+    If the file is not found, it gracefully returns an empty map.
+
+    Args:
+      config: A configuration object or dictionary containing necessary information
+              to locate the file.
+
+    Returns:
+      A map where keys represent symbol names and values represent their frequencies.
+    """
     name_occurrences = {}
     # This code reads occurrences of symbol names from a file containing both the core image
     # and modules frequencies resulted from the computation of the "core_image" action.
@@ -531,6 +477,25 @@ def read_name_occurrences(config):
     return name_occurrences
 
 def check_aliases(config, module_nm_lines):
+   """
+   Flags modules that already have aliases based on the given 'module_nm_lines'.
+
+   This function takes in configuration details and a list of strings representing
+   the 'nm' command output for a specific module. It detects instances where a module
+   already possesses an alias, which might occur after a build interruption and restart.
+
+   The detection logic is straightforward: it examines if the separator character is
+   present in the symbol name. If found, it uses this separator to check if the
+   previous symbol shares the same name. This detection assumes 'nm' is invoked with
+   the '-n' flag, ensuring symbol sorting.
+
+   Args:
+     config: A configuration object or dictionary containing necessary information.
+     module_nm_lines: A list of strings representing the 'nm' command output for a module.
+
+   Returns:
+     True if the module_nm_lines contains aliases, False otherwise.
+   """
    prev = None
    for line in module_nm_lines:
        if ('@' in line.name and line.name.split(config.separator)[0] == prev):
@@ -546,16 +511,7 @@ def main():
     core_image_parser.add_argument('-n', "--nmdata", dest="nm_data_file", required=True, help="Set vmlinux nm output file to use for core image.")
     core_image_parser.add_argument('-o', "--outfile", dest="output_file", required=True, help="Set the vmlinux nm output file containing aliases.")
     core_image_parser.add_argument('-v', "--vmlinux", dest="vmlinux_file", required=True, help="Set the vmlinux core image file.")
-    core_image_parser.add_argument('-l', "--journal", dest="journal_file", required=False, help="Sets a filename for jounal.")
     core_image_parser.add_argument('-m', "--modules_list", dest="module_list", required=True, help="Set the file containing the list of the modules object files.")
-    core_image_parser.add_argument('-k', "--symbol_module", dest="module_symbol_list_file", required=False, help="Specify the module symbols data file needed to use for producing aliases")
-
-    modules_parser = subparsers.add_parser('modules', help='Operates for out of tree computation.')
-    modules_parser.add_argument('-c', "--objcopy", dest="objcopy_file", required=True, help="Set the objcopy executable to be used.")
-    modules_parser.add_argument('-u', "--objdump", dest="objdump_file", required=True, help="Set objdump  executable to be used.")
-    modules_parser.add_argument('-l', "--journal", dest="journal_file", required=False, help="Sets a filename for jounal.")
-    modules_parser.add_argument('-m', "--modules_list", dest="module_list", required=True, help="Set the file containing the list of the modules object files.")
-    modules_parser.add_argument('-k', "--symbol_module", dest="module_symbol_list_file", required=True, help="Specify the module symbols data file needed to use for producing aliases")
 
     single_module_parser = subparsers.add_parser('single_module', help='Operates for out of tree computation.')
     single_module_parser.add_argument('-c', "--objcopy", dest="objcopy_file", required=True, help="Set the objcopy executable to be used.")
@@ -571,10 +527,6 @@ def main():
     parser.add_argument('-e', "--nm", dest="nm_file", required=True, help="Set the nm executable to be used.")
 
     config = parser.parse_args()
-    config.modules_journal= {}
-    #register signal handlers
-    signal.signal(signal.SIGINT, partial(handle_signal, config))
-    signal.signal(signal.SIGTERM, partial(handle_signal, config))
 
     try:
         # The core_image target is utilized for gathering symbol statistics from the core image and modules,
@@ -599,7 +551,6 @@ def main():
             module_list = fetch_file_lines(config, config.module_list)
             module_symbol_list = {}
             for module in module_list:
-                config.modules_journal[module] = 0
                 module_nm_lines = do_nm(module, config)
                 module_symbol_list[module], name_occurrences = parse_nm_lines(config, module_nm_lines, name_occurrences)
 
@@ -607,19 +558,6 @@ def main():
             with open(config.symbol_frequency_file, 'w') as file:
                 for key, value in name_occurrences.items():
                     file.write(f"{key}:{value}\n")
-
-            debug_print(config, DebugLevel.INFO.value, "Save {config.journal_file} data")
-            with open(config.journal_file, 'w') as file:
-                for key, value in config.modules_journal.items():
-                    file.write(f"{key}:{value}\n")
-
-            debug_print(config, DebugLevel.INFO.value, f"Save module_symbol_list data: {config.module_symbol_list_file}")
-            with open(config.module_symbol_list_file, 'w') as file:
-                for key, value in module_symbol_list.items():
-                    file.write(f"{key}:\n")
-                    for line in value:
-                        file.write(f"{line.address},{line.type},{line.name},{line.addr_int}\n")
-                    file.write("---\n")
 
             debug_print(config, DebugLevel.INFO.value, "Produce file for vmlinux")
             # Produce file for vmlinux
@@ -630,52 +568,6 @@ def main():
             addr2line_process.stdout.close()
             addr2line_process.stderr.close()
             addr2line_process.wait()
-
-        # Expects to be called from scripts/Makefile.modfinal
-        elif config.action == 'modules':
-            debug_print(config, DebugLevel.INFO.value,"Start modules processing")
-            # read journal from file
-            try:
-                with open(config.journal_file, 'r') as file:
-                    for line in file:
-                        key, value = line.strip().split(':')
-                        config.modules_journal[key]=int(value)
-            except FileNotFoundError:
-                pass
-
-            name_occurrences = read_name_occurrences(config)
-            module_symbol_list = read_module_symbol_list(config)
-
-            debug_print(config, DebugLevel.INFO.value, "Add aliases to module files")
-            module_list = fetch_file_lines(config, config.module_list)
-            # Add aliases to module files
-            for module in module_list:
-                if config.modules_journal[module] == 1:
-                    debug_print(config, DebugLevel.DEBUG_ALL.value, f"{module} is half done: check if restore's needed")
-                    backup_file = module + '.orig'
-                    if os.path.exists(backup_file):
-                        debug_print(config, DebugLevel.INFO.value, f"restore: {module} is not clean, restore {backup_file}")
-                        os.rename(backup_file, module)
-                elif config.modules_journal[module] == 2:
-                    debug_print(config, DebugLevel.DEBUG_ALL.value, f"skipping {module}: already done")
-                    continue
-
-                config.modules_journal[module] = 1
-                debug_print(config, DebugLevel.DEBUG_BASIC.value, f"addr2line_process({module}, {config.addr2line_file})")
-                addr2line_process = start_addr2line_process(module, config)
-                # Custom modules compiled OOT are not part of module_symbol_list, so before proceeding, they need to be added
-                if module not in module_symbol_list:
-                   debug_print(config, DebugLevel.DEBUG_BASIC.value, f"module '{module}' not in list, possibly custom OOT, fetching symbol data.")
-                   module_nm_lines = do_nm(module, config)
-                   module_symbol_list[module], name_occurrences = parse_nm_lines(config, module_nm_lines, name_occurrences)
-
-                debug_print(config, DebugLevel.DEBUG_ALL.value, f"executing produce_output_modules on {module}")
-                produce_output_modules(config, module_symbol_list[module], name_occurrences, module, addr2line_process)
-                addr2line_process.stdin.close()
-                addr2line_process.stdout.close()
-                addr2line_process.stderr.close()
-                addr2line_process.wait()
-                config.modules_journal[module] = 2
 
         # Expects to be called from scripts/Makefile.modfinal
         elif config.action == 'single_module':
@@ -701,10 +593,8 @@ def main():
             raise SystemExit("Script terminated: unknown action")
 
     except Exception as e:
-        config.exit_cause = -2
-        config.exception_type = type(e).__name__
-        config.error_message = str(e)
-        save_journal_and_exit(config)
+        debug_print(config, DebugLevel.PRODUCTION.value, f"Script terminated due to an error ({type(e).__name__}): {str(e)}")
+        sys.exit(-2)
 
 if __name__ == "__main__":
     main()
