@@ -88,6 +88,7 @@ def parse_nm_lines(config, lines, name_occurrences=None):
     Parses a given nm output and returns the symbol list along with a hash of
     symbol occurrences.
     Args:
+      config: Struct containing the current config parsed from command line
       lines: List of tuples representing one nm line.
       name_occurrences: Hash having the name as key, used to count names'
                         occurrences.
@@ -118,7 +119,7 @@ def start_addr2line_process(binary_file, config):
     Args:
       binary_file: String representing the binary file name object of addr2line
                    queries.
-      addr2line_file: String representing the addr2line executable name.
+      config: Struct containing the current config parsed from command line
     Returns:
       Returns addr2line process descriptor.
     """
@@ -143,6 +144,7 @@ def addr2line_fetch_address(config, addr2line_process, address):
       addr2line_process: Descriptor of the addr2line process that is wanted to
                          handle the query.
       address: The address of the symbol that needs to be resolved.
+      config: Struct containing the current config parsed from command line
     Returns:
       Returns a string representing the file and line number where the symbol
       at the specified address has been defined. The address is normalized
@@ -167,6 +169,7 @@ def process_line(line, config, section_map):
     Args:
       line: nm line object that needs to be checked.
       section_map: map correlating symbols and the ELF section they are from
+      config: Struct containing the current config parsed from command line
     Returns:
       Returns true if the line needs to be processed, false otherwise.
     """
@@ -194,6 +197,7 @@ def fetch_file_lines(config, filename):
     Reads a text file and retrieves its content.
     Args:
       filename: String representing the name of the file that needs to be read.
+      config: Struct containing the current config parsed from command line
     Returns:
       Returns a string list representing the lines read in the file.
     """
@@ -213,7 +217,7 @@ def do_nm(filename, config):
     Args:
       filename: String representing the name of the file on which nm should
       run against.
-      nm_executable: String representing the nm executable filename.
+      config: Struct containing the current config parsed from command line
     Returns:
       Returns a strings list representing the nm output.
     """
@@ -236,6 +240,7 @@ def make_objcpy_arg(config, line, decoration, section_map):
       decoration: String representing the decoration (normalized addr2line
                   output) to be added at the symbol name to have the alias.
       section_map: map correlating symbols and the ELF section they are from
+      config: Struct containing the current config parsed from command line
     Returns:
       Returns a string that directly maps the argument string objcopy should
       use to add the alias.
@@ -261,7 +266,7 @@ def execute_objcopy(config, objcopy_args, object_file):
     before operating on it. At function end, a new object file having the old
     object's name is carrying the aliases for the duplicate symbols.
     Args:
-      objcopy_executable: String representing the object copy executable file.
+      config: Struct containing the current config parsed from command line
       objcopy_args: Arguments (aliases to add to the object file) to be used
                     in the objcopy execution command line.
       object_file: Target object file (module object file) against which objcopy is executed.
@@ -341,10 +346,10 @@ def section_interesting(section):
 
 def get_symbol2section(config, file_to_operate):
     """
-    This function aims to produce a map{symbol_name]=section_name for
+    This function aims to produce a map[symbol_name]=section_name for
     any given object file.
     Args:
-      objdump_executable: String representing the objdump executable.
+      config: Struct containing the current config parsed from command line
       file_to_operate: file whose section names are wanted.
     Returns:
       Returns a map, where the key is the symbol name and the value is
@@ -357,8 +362,8 @@ def get_symbol2section(config, file_to_operate):
         section_pattern = re.compile(r'^ *[0-9]+ ([.a-z_]+) +([0-9a-f]+).*$', re.MULTILINE)
         section_names = section_pattern.findall(output)
         result = {}
-        for section, section_siza in section_names:
-            if int(section_siza, 16) != 0 and section_interesting(section):
+        for section, section_size in section_names:
+            if int(section_size, 16) != 0 and section_interesting(section):
                 debug_print(config, DebugLevel.DEBUG_ALL.value, f"CMD => {config.objdump_file} -tj {section} {file_to_operate}")
                 try:
                     output = subprocess.check_output(
@@ -377,8 +382,7 @@ def get_symbol2section(config, file_to_operate):
         sys.exit(-2)
     return result
 
-def produce_output_modules(config, symbol_list, name_occurrences,
-                           module_file_name, addr2line_process):
+def produce_output_modules(config, symbol_list, name_occurrences, module_file_name, addr2line_process):
     """
     Computes the alias addition on a given module object file.
     Args:
@@ -498,7 +502,7 @@ def check_aliases(config, module_nm_lines):
    """
    prev = None
    for line in module_nm_lines:
-       if ('@' in line.name and line.name.split(config.separator)[0] == prev):
+       if (config.separator in line.name and line.name.split(config.separator)[0] == prev):
            return False
        prev = line.name
    return True
@@ -572,7 +576,7 @@ def main():
         # Expects to be called from scripts/Makefile.modfinal
         elif config.action == 'single_module':
              debug_print(config, DebugLevel.INFO.value,"Start single_module processing")
-             # read simbol name frequency file
+             # read symbol name frequency file
              name_occurrences = read_name_occurrences(config)
              # scan current module
              module_nm_lines = do_nm(config.target_module, config)
