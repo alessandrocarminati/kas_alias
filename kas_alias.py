@@ -54,11 +54,13 @@ class SeparatorType:
 Line = namedtuple('Line', ['address', 'type', 'name', 'addr_int'])
 
 def get_caller():
-    """Used only to produce debug messages: returns the caller's caller name if any, 
-    "kas_alias" otherwise
-
-    :return: A string representing a name of a function.
-    :rtype: str
+    """
+    Used only to produce debug messages:
+    Gets the caller's caller name if any, "kas_alias" otherwise
+    Args:
+      None
+    Returns:
+      A string representing a name of a function.
     """
     stack = inspect.stack()
     if len(stack) > 2:
@@ -69,32 +71,29 @@ def get_caller():
         return "kas_alias"
 
 def debug_print(config, print_debug_level, text):
-    """Prints text if current debug level is greater or equal to print_debug_level.
-
-    :param config: object containing the current config parsed from command line
-    :type config: object
-    :param print_debug_level: Minimum debug level message should be printed.
-    :type print_debug_level: int
-    :param text: string representing the message.
-    :type text: str
+    """
+    Prints text if current debug level is greater or equal to print_debug_level.
+    Args:
+      current_debug_level: Application debug level specified by command line.
+      print_debug_level: Minimum debug level message should be printed.
+      text: string representing the message.
+    Returns:
+      Nothing.
     """
     if int(config.debug) >= print_debug_level:
         print(f"{get_caller()}: " + text)
 
 def parse_nm_lines(config, lines, name_occurrences=None):
-    """Parses a given nm output and returns the symbol list along with a hash of
+    """
+    Parses a given nm output and returns the symbol list along with a hash of
     symbol occurrences.
-
-    :param config: object containing the current config parsed from command line
-    :type config: object
-    :param lines: List of tuples representing one nm line.
-    :type lines: List of Line
-    :param name_occurrences: Hash having the name as key, used to count names' occurrences.
-    :type name_occurrences: map[string]=int
-
-    :return: two elements tuple containing: a new line list proper for the nm output it parsed 
-       and, updates the occurrences hash.
-    :rtype: tuple
+    Args:
+      lines: List of tuples representing one nm line.
+      name_occurrences: Hash having the name as key, used to count names'
+                        occurrences.
+    Returns:
+      Creates a new line list proper for the nm output it parsed and, updates
+      the occurrences hash.
     """
     debug_print(config, DebugLevel.DEBUG_BASIC.value, "parse_nm_lines: parse start")
 
@@ -114,14 +113,14 @@ def parse_nm_lines(config, lines, name_occurrences=None):
     return symbol_list, name_occurrences
 
 def start_addr2line_process(binary_file, config):
-    """Initializes an addr2line server process operating on the given ELF object.
-
-    :param binary_file: String representing the binary file name object of addr2line queries.
-    :type binary_file: str
-    :param config: object containing the current config parsed from command line
-    :type config: object
-    :return: addr2line process descriptor.
-    :rtype: process descriptor
+    """
+    Initializes an addr2line server process operating on the given ELF object.
+    Args:
+      binary_file: String representing the binary file name object of addr2line
+                   queries.
+      addr2line_file: String representing the addr2line executable name.
+    Returns:
+      Returns addr2line process descriptor.
     """
     debug_print(config, DebugLevel.DEBUG_BASIC.value, f"Starting addr2line process on {binary_file}")
 
@@ -138,17 +137,16 @@ def start_addr2line_process(binary_file, config):
         sys.exit(-2)
 
 def addr2line_fetch_address(config, addr2line_process, address):
-    """Queries a specific address using the active addr2line process.
-
-    :param config: object containing the current config parsed from command line
-    :type config: object
-    :param addr2line_process: Descriptor of the addr2line process that is wanted to handle the query.
-    :type addr2line_process: process descriptor
-    :param address: The address of the symbol that needs to be resolved.
-    :type address: str
-    :return: a string representing the file and line number where the symbol at the specified address
-         has been defined. The address is normalized before being returned.
-    :rtype: str
+    """
+    Queries a specific address using the active addr2line process.
+    Args:
+      addr2line_process: Descriptor of the addr2line process that is wanted to
+                         handle the query.
+      address: The address of the symbol that needs to be resolved.
+    Returns:
+      Returns a string representing the file and line number where the symbol
+      at the specified address has been defined. The address is normalized
+      before being returned.
   """
     debug_print(config, DebugLevel.DEBUG_ALL.value, f"Resolving {address}")
 
@@ -164,16 +162,13 @@ def addr2line_fetch_address(config, addr2line_process, address):
         sys.exit(-2)
 
 def process_line(line, config, section_map):
-    """Determines whether a duplicate item requires an alias or not.
-
-    :param line: nm line object that needs to be checked.
-    :type line: list of Line
-    :param section_map: map correlating symbols and the ELF section they are from
-    :type section_map: map[str]=str
-    :param config: object containing the current config parsed from command line
-    :type config: object
-    :return: true if the line needs to be processed, false otherwise.
-    :rtype: bool
+    """
+    Determines whether a duplicate item requires an alias or not.
+    Args:
+      line: nm line object that needs to be checked.
+      section_map: map correlating symbols and the ELF section they are from
+    Returns:
+      Returns true if the line needs to be processed, false otherwise.
     """
     debug_print(config, DebugLevel.DEBUG_ALL.value, f"Processing {line.address} {line.type} {line.name}")
 
@@ -195,14 +190,12 @@ def process_line(line, config, section_map):
                 not (any(re.match(regex, line.name) for regex in regex_filter)))
 
 def fetch_file_lines(config, filename):
-    """Reads a text file and retrieves its content.
-
-    :param filename: String representing the name of the file that needs to be read.
-    :type filename: str
-    :param config: object containing the current config parsed from command line
-    :type config: object
-    :return: a string list representing the lines read in the file.
-    :rtype: list of str
+    """
+    Reads a text file and retrieves its content.
+    Args:
+      filename: String representing the name of the file that needs to be read.
+    Returns:
+      Returns a string list representing the lines read in the file.
     """
     debug_print(config, DebugLevel.DEBUG_BASIC.value, f"Fetch {filename}")
 
@@ -215,14 +208,14 @@ def fetch_file_lines(config, filename):
         sys.exit(-2)
 
 def do_nm(filename, config):
-    """Runs the nm command on a specified file.
-
-    :param filename: String representing the name of the file on which nm should run against.
-    :type filename: str
-    :param config: object containing the current config parsed from command line
-    :type config: object
-    :return: a strings list representing the nm output.
-    :rtype: list of str
+    """
+    Runs the nm command on a specified file.
+    Args:
+      filename: String representing the name of the file on which nm should
+      run against.
+      nm_executable: String representing the nm executable filename.
+    Returns:
+      Returns a strings list representing the nm output.
     """
     debug_print(config, DebugLevel.DEBUG_BASIC.value, f"executing {config.nm_file} -n {filename}")
 
@@ -235,18 +228,17 @@ def do_nm(filename, config):
         sys.exit(-2)
 
 def make_objcpy_arg(config, line, decoration, section_map):
-    """Produces an objcopy argument statement for a single alias to be added in a module.
-
-    :param line: nm line object target for this iteration.
-    :type line: list of Line
-    :param decoration: String representing the decoration (normalized addr2line output) to be added at the symbol name to have the alias.
-    :type decoration: str
-    :param section_map: map correlating symbols and the ELF section they are from
-    :type section_map: map[str]=str
-    :param config: object containing the current config parsed from command line
-    :type config: object
-    :return: a string that directly maps the argument string objcopy should use to add the alias.
-    :rtype: str
+    """
+    Produces an objcopy argument statement for a single alias to be added in a
+    module.
+    Args:
+      line: nm line object target for this iteration.
+      decoration: String representing the decoration (normalized addr2line
+                  output) to be added at the symbol name to have the alias.
+      section_map: map correlating symbols and the ELF section they are from
+    Returns:
+      Returns a string that directly maps the argument string objcopy should
+      use to add the alias.
     """
     try:
         flag = "global" if line.type.isupper() else "local"
@@ -263,28 +255,24 @@ def make_objcpy_arg(config, line, decoration, section_map):
         return ""
 
 def execute_objcopy(config, objcopy_args, object_file):
-    """Uses objcopy to add aliases to a given module object file. Since objcopy can't operate in place,
-    the original object file is renamed before operating on it. At function end, a new object file
-    having the old object's name is carrying the aliases for the duplicate symbols.
-
-    :param config: object containing the current config parsed from command line
-    :type config: object
-    :param objcopy_args: Arguments (aliases to add to the object file) to be used in the objcopy execution command line.
-    :type objcopy_args: str
-    :param object_file: Target object file (module object file) against which objcopy is executed.
-    :type object_file: str
-    :return: Nothing is returned, but as a side effect of this function execution, the module's object file contains 
-       the aliases for duplicated symbols.
-    :rtype: None
     """
-    # Rename the original object file by adding a suffix
-    backup_file = object_file + '.orig'
-    debug_print(config, DebugLevel.DEBUG_MODULES.value, f"rename {object_file} to {backup_file}")
-    os.rename(object_file, backup_file)
+    Uses objcopy to add aliases to a given module object file.
+    Since objcopy can't operate in place, the original object file is renamed
+    before operating on it. At function end, a new object file having the old
+    object's name is carrying the aliases for the duplicate symbols.
+    Args:
+      objcopy_executable: String representing the object copy executable file.
+      objcopy_args: Arguments (aliases to add to the object file) to be used
+                    in the objcopy execution command line.
+      object_file: Target object file (module object file) against which objcopy is executed.
+    Returns:
+      Nothing is returned, but as a side effect of this function execution,
+      the module's object file contains the aliases for duplicated symbols.
+    """
 
     full_command = (
                     f"{config.objcopy_file} "
-                    f"{objcopy_args} {backup_file} {object_file}"
+                    f"{objcopy_args} {object_file} {object_file}.kas"
                    )
     debug_print(config, DebugLevel.DEBUG_MODULES.value, f"executing {full_command}")
 
@@ -295,17 +283,18 @@ def execute_objcopy(config, objcopy_args, object_file):
         sys.exit(-2)
 
 def generate_decoration(line, config, addr2line_process):
-    """Generates symbol decoration to be used to make the alias name, by querying addr2line.
-
-    :param line: nm line object that needs an alias.
-    :type line: 
-    :param config: object containing the current config parsed from command line
-    :type config: object
-    :param addr2line_process: Descriptor of the addr2line process that serves the binary object where the symbol belongs.
-    :type addr2line_process: 
-    :return: Returns a string representing the decoration for the given symbol, or empty string if this can not be done. 
-       E.g., addr2line can't find the point where the symbol is defined.
-    :rtype: str
+    """
+    Generates symbol decoration to be used to make the alias name, by
+    querying addr2line.
+    Args:
+      line: nm line object that needs an alias.
+      config: Object containing command line configuration.
+      addr2line_process: Descriptor of the addr2line process that serves
+                         the binary object where the symbol belongs.
+    Returns:
+      Returns a string representing the decoration for the given symbol,
+      or empty string if this can not be done. E.g., addr2line can't find
+      the point where the symbol is defined.
     """
     output = addr2line_fetch_address(config, addr2line_process, line.address)
     base_dir = config.linux_base_dir + "/"
@@ -332,12 +321,12 @@ def generate_decoration(line, config, addr2line_process):
     return ""
 
 def section_interesting(section):
-    """Checks if a section is of interest.
-
-    :param section: string representing the section needed to be tested.
-    :type section: str
-    :return: True if it is, False otherwise.
-    :rtype: bool
+    """
+    checks if a section is of interest.
+    Args:
+      section: string representing the section needed to be tested.
+    Returns:
+      True if it is, False otherwise.
     """
     sections_regex = [r".text", r".data", r".bss", r".rodata"]
 
@@ -347,14 +336,15 @@ def section_interesting(section):
     return False
 
 def get_symbol2section(config, file_to_operate):
-    """This function aims to produce a map[symbol_name]=section_name for any given object file.
-
-    :param config: object containing the current config parsed from command line
-    :type config: object
-    :param file_to_operate: file whose section names are wanted.
-    :type file_to_operate: str
-    :return: Returns a map, where the key is the symbol name and the value is a section name.
-    :rtype: map[str]=str
+    """
+    This function aims to produce a map{symbol_name]=section_name for
+    any given object file.
+    Args:
+      objdump_executable: String representing the objdump executable.
+      file_to_operate: file whose section names are wanted.
+    Returns:
+      Returns a map, where the key is the symbol name and the value is
+      a section name.
     """
     try:
         output = subprocess.check_output(
@@ -363,8 +353,8 @@ def get_symbol2section(config, file_to_operate):
         section_pattern = re.compile(r'^ *[0-9]+ ([.a-z_]+) +([0-9a-f]+).*$', re.MULTILINE)
         section_names = section_pattern.findall(output)
         result = {}
-        for section, section_size in section_names:
-            if int(section_size, 16) != 0 and section_interesting(section):
+        for section, section_siza in section_names:
+            if int(section_siza, 16) != 0 and section_interesting(section):
                 debug_print(config, DebugLevel.DEBUG_ALL.value, f"CMD => {config.objdump_file} -tj {section} {file_to_operate}")
                 try:
                     output = subprocess.check_output(
@@ -383,22 +373,21 @@ def get_symbol2section(config, file_to_operate):
         sys.exit(-2)
     return result
 
-def produce_output_modules(config, symbol_list, name_occurrences, module_file_name, addr2line_process):
-    """Computes the alias addition on a given module object file.
-
-    :param config: object containing the current config parsed from command line.
-    :type config: object
-    :param symbol_list: List of tuples representing nm lines for the given object file.
-    :type symbol_list: list of Line
-    :param name_occurrences: Hash that stores symbol occurrences for the build.
-    :type name_occurrences: map[str]=int
-    :param module_file_name: String representing the target moule object file.
-    :type module_file_name: str
-    :param addr2line_process: Descriptor of the addr2line process that is wanted to handle the query.
-    :type addr2line_process: process descriptor
-    :return: Nothing is returned, but as a side effect of this function execution, the module's object file contains the
-       aliases for duplicated symbols.
-    :rtype: None
+def produce_output_modules(config, symbol_list, name_occurrences,
+                           module_file_name, addr2line_process):
+    """
+    Computes the alias addition on a given module object file.
+    Args:
+      config: Object containing command line configuration.
+      symbol_list: List of tuples representing nm lines for the given object
+                   file.
+      name_occurrences: Hash that stores symbol occurrences for the build.
+      module_file_name: String representing the target moule object file.
+      addr2line_process: Descriptor of the addr2line process that is wanted to
+                         handle the query.
+    Returns:
+      Nothing is returned, but as a side effect of this function execution,
+      the module's object file contains the aliases for duplicated symbols.
     """
     debug_print(config, DebugLevel.DEBUG_ALL.value, "produce_output_modules computation starts here ")
     objcopy_args = "";
@@ -424,19 +413,18 @@ def produce_output_modules(config, symbol_list, name_occurrences, module_file_na
     execute_objcopy(config, objcopy_args, module_file_name)
 
 def produce_output_vmlinux(config, symbol_list, name_occurrences, addr2line_process):
-    """Computes the alias addition for the core Linux on image.
-
-    :param config: object containing the current config parsed from command line
-    :type config: object
-    :param symbol_list: List of tuples representing nm lines for the given object file.
-    :type symbol_list: list of Line
-    :param name_occurrences: Hash that stores symbol occurreces for the build.
-    :type name_occurrences: map[str]=int
-    :param addr2line_process: Descriptor of the addr2line process that is wanted to handle the query.
-    :type addr2line_process: process descriptor
-    :return: Nothing is returned, but as a side effect of this function execution, the core kernel image 
-      contains the aliases for duplicated symbols.
-    :rtype: None
+    """
+    Computes the alias addition for the core Linux on image.
+    Args:
+      config: Object containing command line configuration.
+      symbol_list: List of tuples representing nm lines for the given object
+                   file.
+      name_occurrences: Hash that stores symbol occurreces for the build.
+      addr2line_process: Descriptor of the addr2line process that is wanted to
+                         handle the query.
+    Returns:
+      Nothing is returned, but as a side effect of this function execution,
+      the core kernel image contains the aliases for duplicated symbols.
     """
     with open(config.output_file, 'w') as output_file:
        for obj in symbol_list:
@@ -449,13 +437,17 @@ def produce_output_vmlinux(config, symbol_list, name_occurrences, addr2line_proc
                     output_file.write(f"{obj.address} {obj.type} {obj.name + decoration}\n")
 
 def read_name_occurrences(config):
-    """Reads symbol frequencies from the file specified in the 'config' argument.
+    """
+    Reads symbol frequencies from the file specified in the 'config' argument.
+
     If the file is not found, it gracefully returns an empty map.
 
-    :param config: object containing the current config parsed from command line
-    :type config: object
-    :return: A map where keys represent symbol names and values represent their frequencies.
-    :rtype: map[str]=int
+    Args:
+      config: A configuration object or dictionary containing necessary information
+              to locate the file.
+
+    Returns:
+      A map where keys represent symbol names and values represent their frequencies.
     """
     name_occurrences = {}
     # This code reads occurrences of symbol names from a file containing both the core image
@@ -481,25 +473,28 @@ def read_name_occurrences(config):
     return name_occurrences
 
 def check_aliases(config, module_nm_lines):
-   """Flags modules that already have aliases based on the given 'module_nm_lines'.
+   """
+   Flags modules that already have aliases based on the given 'module_nm_lines'.
+
    This function takes in configuration details and a list of strings representing
    the 'nm' command output for a specific module. It detects instances where a module
    already possesses an alias, which might occur after a build interruption and restart.
+
    The detection logic is straightforward: it examines if the separator character is
    present in the symbol name. If found, it uses this separator to check if the
    previous symbol shares the same name. This detection assumes 'nm' is invoked with
    the '-n' flag, ensuring symbol sorting.
 
-   :param config: object containing the current config parsed from command line
-   :type config: object
-   :param module_nm_lines: A list of strings representing the 'nm' command output for a module.
-   :type module_nm_lines: list of Line
-   :return: True if the module_nm_lines contains aliases, False otherwise.
-   :rtype: bool
+   Args:
+     config: A configuration object or dictionary containing necessary information.
+     module_nm_lines: A list of strings representing the 'nm' command output for a module.
+
+   Returns:
+     True if the module_nm_lines contains aliases, False otherwise.
    """
    prev = None
    for line in module_nm_lines:
-       if (config.separator in line.name and line.name.split(config.separator)[0] == prev):
+       if ('@' in line.name and line.name.split(config.separator)[0] == prev):
            return False
        prev = line.name
    return True
@@ -573,7 +568,7 @@ def main():
         # Expects to be called from scripts/Makefile.modfinal
         elif config.action == 'single_module':
              debug_print(config, DebugLevel.INFO.value,"Start single_module processing")
-             # read symbol name frequency file
+             # read simbol name frequency file
              name_occurrences = read_name_occurrences(config)
              # scan current module
              module_nm_lines = do_nm(config.target_module, config)

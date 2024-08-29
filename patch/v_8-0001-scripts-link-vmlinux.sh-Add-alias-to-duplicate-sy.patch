@@ -1,202 +1,211 @@
-commit df63e1a73a68e9974005e079255a36a6744ec09a
-Author: Alessandro Carminati (Red Hat) <alessandro.carminati@gmail.com>
-Date:   Wed Aug 28 15:40:29 2024 +0000
+From af21279d667f00142b40daffa6cd9310851543dd Mon Sep 17 00:00:00 2001
+From: "Alessandro Carminati (Red Hat)" <alessandro.carminati@gmail.com>
+Date: Sat, 9 Sep 2023 08:50:39 +0000
+Subject: [PATCH v8] scripts/link-vmlinux.sh: Add alias to duplicate symbols
+ for kallsyms
+Content-type: text/plain
 
-    scripts/link-vmlinux.sh: Add alias to duplicate symbols
-    
-    In the kernel environment, situations frequently arise where identical
-    names are shared among symbols within both the core image and modules.
-    While this doesn't pose issues for the kernel's binary itself, it
-    complicates trace or probe operations using tools like kprobe.
-    
-    This patch introduces "kas_alias" to address this challenge.
-    
-    During the kernel's build process, just before linking the vmlinux
-    image in the "scripts/link-vmlinux.sh", symbol name frequencies are
-    collected.
-    This collection includes both the core kernel components and modules.
-    Subsequently, within the same action, the nm data relative to vmlinux
-    is modified by adding aliases based on the comprehensive symbol
-    information gathered.
-    
-    The collection process occurs in two phases:
-    
-    1. First phase: Executed during the linking of vmlinux, "kas_alias" scans
-       all symbols provided by the 'nm' data against the vmlinux core image
-       and all objects used for module linkage. This phase requires all
-       modules objects to be produced at this stage, thereby adding a vmlinux
-       dependency for linking modules in 'scripts/Makefile.modfinal'.
-    
-    2. Second phase: In a subsequent run in the same build, "kas_alias"
-       processes module objects and injects aliases into the objects' symbol
-       tables where necessary. This operation is done by modifying
-       'scripts/Makefile.modfinal' to include an action for each processed
-       module.
-    
-    Example:
-    
-    Consider the symbol "device_show", you can expect an output like the
-    following:
-    
-     ~ # cat /proc/kallsyms | grep " name_show"
-    ffffcaa2bb4f01c8 t name_show
-    ffffcaa2bb4f01c8 t name_show@kernel_irq_irqdesc_c_264
-    ffffcaa2bb9c1a30 t name_show
-    ffffcaa2bb9c1a30 t name_show@drivers_pnp_card_c_186
-    ffffcaa2bbac4754 t name_show
-    ffffcaa2bbac4754 t name_show@drivers_regulator_core_c_678
-    ffffcaa2bbba4900 t name_show
-    ffffcaa2bbba4900 t name_show@drivers_base_power_wakeup_stats_c_93
-    ffffcaa2bbec4038 t name_show
-    ffffcaa2bbec4038 t name_show@drivers_rtc_sysfs_c_26
-    ffffcaa2bbecc920 t name_show
-    ffffcaa2bbecc920 t name_show@drivers_i2c_i2c_core_base_c_660
-    ffffcaa2bbed3840 t name_show
-    ffffcaa2bbed3840 t name_show@drivers_i2c_i2c_dev_c_100
-    ffffcaa2bbef7210 t name_show
-    ffffcaa2bbef7210 t name_show@drivers_pps_sysfs_c_66
-    ffffcaa2bbf03328 t name_show
-    ffffcaa2bbf03328 t name_show@drivers_hwmon_hwmon_c_72
-    ffffcaa2bbff6f3c t name_show
-    ffffcaa2bbff6f3c t name_show@drivers_remoteproc_remoteproc_sysfs_c_215
-    ffffcaa2bbff8d78 t name_show
-    ffffcaa2bbff8d78 t name_show@drivers_rpmsg_rpmsg_core_c_455
-    ffffcaa2bbfff7a4 t name_show
-    ffffcaa2bbfff7a4 t name_show@drivers_devfreq_devfreq_c_1395
-    ffffcaa2bc001f60 t name_show
-    ffffcaa2bc001f60 t name_show@drivers_extcon_extcon_c_389
-    ffffcaa2bc009890 t name_show
-    ffffcaa2bc009890 t name_show@drivers_iio_industrialio_core_c_1396
-    ffffcaa2bc01212c t name_show
-    ffffcaa2bc01212c t name_show@drivers_iio_industrialio_trigger_c_51
-    ffffcaa2bc025e2c t name_show
-    ffffcaa2bc025e2c t name_show@drivers_fpga_fpga_mgr_c_618
-    ffffcaa2a052102c t name_show    [hello]
-    ffffcaa2a052102c t name_show@hello_hello_c_8    [hello]
-    ffffcaa2a051955c t name_show    [rpmsg_char]
-    ffffcaa2a051955c t name_show@drivers_rpmsg_rpmsg_char_c_365     [rpmsg_char]
-    
-    where hello, is a plain helloworld module built OOT.
-    
-    Tested-by: Masami Hiramatsu (Google) <mhiramat@kernel.org>
-    Signed-off-by: Alessandro Carminati (Red Hat) <alessandro.carminati@gmail.com>
-    
-    ---
-    
-    NOTE1:
-    About the symbols name duplication that happens as consequence of the
-    inclusion compat_binfmt_elf.c does, it is evident that this corner is
-    inherently challenging the addr2line approach.
-    Attempting to conceal this limitation would be counterproductive.
-    
-    compat_binfmt_elf.c includes directly binfmt_elf.c, addr2line can't help
-    but report all functions and data declared by that file, coming from
-    binfmt_elf.c.
-    
-    My position is that, rather than producing a more complicated pipeline
-    to handle this corner case, it is better to fix the compat_binfmt_elf.c
-    anomaly.
-    
-    This patch does not deal with the two potentially problematic symbols
-    defined by compat_binfmt_elf.c
-    
-    Changes from v1:
-    * Integrated changes requested by Masami to exclude symbols with prefixes
-      "_cfi" and "_pfx".
-    * Introduced a small framework to handle patterns that need to be excluded
-      from the alias production.
-    * Excluded other symbols using the framework.
-    * Introduced the ability to discriminate between text and data symbols.
-    * Added two new config symbols in this version:
-      CONFIG_KALLSYMS_ALIAS_DATA, which allows data for data, and
-      CONFIG_KALLSYMS_ALIAS_DATA_ALL, which excludes all filters and provides
-      an alias for each duplicated symbol.
-    
-    https://lore.kernel.org/all/20230711151925.1092080-1-alessandro.carminati@gmail.com/
-    
-    Changes from v2:
-    * Alias tags are created by querying DWARF information from the vmlinux.
-    * The filename + line number is normalized and appended to the original
-      name.
-    * The tag begins with '@' to indicate the symbol source.
-    * Not a change, but worth mentioning, since the alias is added to the
-      existing list, the old duplicated name is preserved, and the livepatch
-      way of dealing with duplicates is maintained.
-    * Acknowledging the existence of scenarios where inlined functions
-      declared in header files may result in multiple copies due to compiler
-      behavior, though it is not actionable as it does not pose an operational
-      issue.
-    * Highlighting a single exception where the same name refers to different
-      functions: the case of "compat_binfmt_elf.c," which directly includes
-      "binfmt_elf.c" producing identical function copies in two separate
-      modules.
-    
-    https://lore.kernel.org/all/20230714150326.1152359-1-alessandro.carminati@gmail.com/
-    
-    Changes from v3:
-    * kas_alias was rewritten in Python to create a more concise and
-      maintainable codebase.
-    * The previous automation process used by kas_alias to locate the vmlinux
-      and the addr2line has been replaced with an explicit command-line switch
-      for specifying these requirements.
-    * addr2line has been added into the main Makefile.
-    * A new command-line switch has been introduced, enabling users to extend
-      the alias to global data names.
-    
-    https://lore.kernel.org/all/20230828080423.3539686-1-alessandro.carminati@gmail.com/
-    
-    Changes from v4:
-    * Fixed the O=<build dir> build issue
-    * The tool halts execution upon encountering major issues, thereby ensuring
-      the pipeline is interrupted.
-    * A cmdline option to specify the source directory added.
-    * Minor code adjusments.
-    * Tested on mips32 and i386
-    
-    https://lore.kernel.org/all/20230919193948.465340-1-alessandro.carminati@gmail.com/
-    
-    Changes from v5:
-    * Regex filter extended to all symbols
-    * Alias creation extended to module objects
-    * Code cleaned and commented
-    * kas_alias verbose execution via KAS_ALIAS_DEBUG env variable
-    * CONFIG_KALLSYMS_ALIAS_SRCLINE selects KBUILD_BUILTIN to ensure no races
-      during modules build
-    * Tested on x86_64, aarch64 and i386
-    
-    https://lore.kernel.org/all/20230927173516.1456594-1-alessandro.carminati@gmail.com/
-    
-    Changes from v6:
-    * Generate a file to facilitate the construction of custom OOT modules using aliases.
-      In this context, it is needed to export the modules.symbfreq file, a product of
-      the build.
-    * Previously, kas_alias was intended to run once, executing all tasks within the same
-      session. In this version, two targets have been introduced to split the work into
-      distinct phases: one for creating aliases for the core image and another for
-      generating aliases for modules.
-    * The module aliases production statement has been inserted in the
-      scripts/Makefile.modfinal. Instead of being executed individually for each module,
-      it now runs once for all modules.
-    * The approach for excluding symbols in .init and .exit ELF sections has undergone a
-      rewrite.
-    * kas_alias is now capable of applying aliases to OOT modules. However, for this to
-      occur, the 'modules.symbfreq' file needs to be accessible during the build.
-      If it is not found, aliases won't be added.
-    
-    https://lore.kernel.org/all/20231024201157.748254-1-alessandro.carminati@gmail.com/
-    
-    Changes from v7:
-    * Modules aliases strategy changed
-    
-    https://lore.kernel.org/all/20231204214635.2916691-1-alessandro.carminati@gmail.com/
-    
-    Signed-off-by: Alessandro Carminati (Red Hat) <alessandro.carminati@gmail.com>
+In the kernel environment, situations frequently arise where identical
+names are shared among symbols within both the core image and modules.
+While this doesn't pose issues for the kernel's binary itself, it
+complicates trace or probe operations using tools like kprobe.
+
+This patch introduces "kas_alias" to address this challenge.
+
+During the kernel's build process, just before linking the vmlinux
+image in the "scripts/link-vmlinux.sh", symbol name frequencies are
+collected.
+This collection includes both the core kernel components and modules.
+Subsequently, within the same action, the nm data relative to vmlinux
+is modified by adding aliases based on the comprehensive symbol
+information gathered.
+
+The collection process occurs in two phases:
+
+1. First phase: Executed during the linking of vmlinux, "kas_alias" scans
+   all symbols provided by the 'nm' data against the vmlinux core image
+   and all objects used for module linkage. This phase requires all
+   modules objects to be produced at this stage, thereby adding a vmlinux
+   dependency for linking modules in 'scripts/Makefile.modfinal'.
+
+2. Second phase: In a subsequent run in the same build, "kas_alias"
+   processes module objects and injects aliases into the objects' symbol
+   tables where necessary. This operation is done by modifying
+   'scripts/Makefile.modfinal' to include an action for each processed
+   module.
+
+Example:
+
+Consider the symbol "device_show", you can expect an output like the
+following:
+
+ ~ # cat /proc/kallsyms | grep " name_show"
+ffffcaa2bb4f01c8 t name_show
+ffffcaa2bb4f01c8 t name_show@kernel_irq_irqdesc_c_264
+ffffcaa2bb9c1a30 t name_show
+ffffcaa2bb9c1a30 t name_show@drivers_pnp_card_c_186
+ffffcaa2bbac4754 t name_show
+ffffcaa2bbac4754 t name_show@drivers_regulator_core_c_678
+ffffcaa2bbba4900 t name_show
+ffffcaa2bbba4900 t name_show@drivers_base_power_wakeup_stats_c_93
+ffffcaa2bbec4038 t name_show
+ffffcaa2bbec4038 t name_show@drivers_rtc_sysfs_c_26
+ffffcaa2bbecc920 t name_show
+ffffcaa2bbecc920 t name_show@drivers_i2c_i2c_core_base_c_660
+ffffcaa2bbed3840 t name_show
+ffffcaa2bbed3840 t name_show@drivers_i2c_i2c_dev_c_100
+ffffcaa2bbef7210 t name_show
+ffffcaa2bbef7210 t name_show@drivers_pps_sysfs_c_66
+ffffcaa2bbf03328 t name_show
+ffffcaa2bbf03328 t name_show@drivers_hwmon_hwmon_c_72
+ffffcaa2bbff6f3c t name_show
+ffffcaa2bbff6f3c t name_show@drivers_remoteproc_remoteproc_sysfs_c_215
+ffffcaa2bbff8d78 t name_show
+ffffcaa2bbff8d78 t name_show@drivers_rpmsg_rpmsg_core_c_455
+ffffcaa2bbfff7a4 t name_show
+ffffcaa2bbfff7a4 t name_show@drivers_devfreq_devfreq_c_1395
+ffffcaa2bc001f60 t name_show
+ffffcaa2bc001f60 t name_show@drivers_extcon_extcon_c_389
+ffffcaa2bc009890 t name_show
+ffffcaa2bc009890 t name_show@drivers_iio_industrialio_core_c_1396
+ffffcaa2bc01212c t name_show
+ffffcaa2bc01212c t name_show@drivers_iio_industrialio_trigger_c_51
+ffffcaa2bc025e2c t name_show
+ffffcaa2bc025e2c t name_show@drivers_fpga_fpga_mgr_c_618
+ffffcaa2a052102c t name_show	[hello]
+ffffcaa2a052102c t name_show@hello_hello_c_8	[hello]
+ffffcaa2a051955c t name_show	[rpmsg_char]
+ffffcaa2a051955c t name_show@drivers_rpmsg_rpmsg_char_c_365	[rpmsg_char]
+
+where hello, is a plain helloworld module built OOT.
+
+Tested-by: Masami Hiramatsu (Google) <mhiramat@kernel.org>
+Signed-off-by: Alessandro Carminati (Red Hat) <alessandro.carminati@gmail.com>
+
+---
+
+NOTE1:
+About the symbols name duplication that happens as consequence of the
+inclusion compat_binfmt_elf.c does, it is evident that this corner is
+inherently challenging the addr2line approach.
+Attempting to conceal this limitation would be counterproductive.
+
+compat_binfmt_elf.c includes directly binfmt_elf.c, addr2line can't help
+but report all functions and data declared by that file, coming from
+binfmt_elf.c.
+
+My position is that, rather than producing a more complicated pipeline
+to handle this corner case, it is better to fix the compat_binfmt_elf.c
+anomaly.
+
+This patch does not deal with the two potentially problematic symbols
+defined by compat_binfmt_elf.c
+
+Changes from v1:
+* Integrated changes requested by Masami to exclude symbols with prefixes
+  "_cfi" and "_pfx".
+* Introduced a small framework to handle patterns that need to be excluded
+  from the alias production.
+* Excluded other symbols using the framework.
+* Introduced the ability to discriminate between text and data symbols.
+* Added two new config symbols in this version:
+  CONFIG_KALLSYMS_ALIAS_DATA, which allows data for data, and
+  CONFIG_KALLSYMS_ALIAS_DATA_ALL, which excludes all filters and provides
+  an alias for each duplicated symbol.
+
+https://lore.kernel.org/all/20230711151925.1092080-1-alessandro.carminati@gmail.com/
+
+Changes from v2:
+* Alias tags are created by querying DWARF information from the vmlinux.
+* The filename + line number is normalized and appended to the original
+  name.
+* The tag begins with '@' to indicate the symbol source.
+* Not a change, but worth mentioning, since the alias is added to the
+  existing list, the old duplicated name is preserved, and the livepatch
+  way of dealing with duplicates is maintained.
+* Acknowledging the existence of scenarios where inlined functions
+  declared in header files may result in multiple copies due to compiler
+  behavior, though it is not actionable as it does not pose an operational
+  issue.
+* Highlighting a single exception where the same name refers to different
+  functions: the case of "compat_binfmt_elf.c," which directly includes
+  "binfmt_elf.c" producing identical function copies in two separate
+  modules.
+
+https://lore.kernel.org/all/20230714150326.1152359-1-alessandro.carminati@gmail.com/
+
+Changes from v3:
+* kas_alias was rewritten in Python to create a more concise and
+  maintainable codebase.
+* The previous automation process used by kas_alias to locate the vmlinux
+  and the addr2line has been replaced with an explicit command-line switch
+  for specifying these requirements.
+* addr2line has been added into the main Makefile.
+* A new command-line switch has been introduced, enabling users to extend
+  the alias to global data names.
+
+https://lore.kernel.org/all/20230828080423.3539686-1-alessandro.carminati@gmail.com/
+
+Changes from v4:
+* Fixed the O=<build dir> build issue
+* The tool halts execution upon encountering major issues, thereby ensuring
+  the pipeline is interrupted.
+* A cmdline option to specify the source directory added.
+* Minor code adjusments.
+* Tested on mips32 and i386
+
+https://lore.kernel.org/all/20230919193948.465340-1-alessandro.carminati@gmail.com/
+
+Changes from v5:
+* Regex filter extended to all symbols
+* Alias creation extended to module objects
+* Code cleaned and commented
+* kas_alias verbose execution via KAS_ALIAS_DEBUG env variable
+* CONFIG_KALLSYMS_ALIAS_SRCLINE selects KBUILD_BUILTIN to ensure no races
+  during modules build
+* Tested on x86_64, aarch64 and i386
+
+https://lore.kernel.org/all/20230927173516.1456594-1-alessandro.carminati@gmail.com/
+
+Changes from v6:
+* Generate a file to facilitate the construction of custom OOT modules using aliases.
+  In this context, it is needed to export the modules.symbfreq file, a product of
+  the build.
+* Previously, kas_alias was intended to run once, executing all tasks within the same
+  session. In this version, two targets have been introduced to split the work into
+  distinct phases: one for creating aliases for the core image and another for
+  generating aliases for modules.
+* The module aliases production statement has been inserted in the
+  scripts/Makefile.modfinal. Instead of being executed individually for each module,
+  it now runs once for all modules.
+* The approach for excluding symbols in .init and .exit ELF sections has undergone a
+  rewrite.
+* kas_alias is now capable of applying aliases to OOT modules. However, for this to
+  occur, the 'modules.symbfreq' file needs to be accessible during the build.
+  If it is not found, aliases won't be added.
+
+https://lore.kernel.org/all/20231024201157.748254-1-alessandro.carminati@gmail.com/
+
+Changes from v7:
+* Code documentation updated and made sphinx compliant
+* Typos fixed
+* Misplaced statement in scripts/link-vmlinux.sh fixed.
+
+https://lore.kernel.org/all/20231204214635.2916691-1-alessandro.carminati@gmail.com/
+---
+ Makefile                  |  14 +-
+ init/Kconfig              |  22 ++
+ scripts/Makefile.modfinal |  30 +-
+ scripts/kas_alias.py      | 601 ++++++++++++++++++++++++++++++++++++++
+ scripts/link-vmlinux.sh   |  26 +-
+ 5 files changed, 687 insertions(+), 6 deletions(-)
+ create mode 100755 scripts/kas_alias.py
 
 diff --git a/Makefile b/Makefile
-index 361a70264..442c111c8 100644
+index ee995fc2b0e5..710776eeff16 100644
 --- a/Makefile
 +++ b/Makefile
-@@ -492,6 +492,7 @@ OBJCOPY		= $(LLVM_PREFIX)llvm-objcopy$(LLVM_SUFFIX)
+@@ -479,6 +479,7 @@ OBJCOPY		= $(LLVM_PREFIX)llvm-objcopy$(LLVM_SUFFIX)
  OBJDUMP		= $(LLVM_PREFIX)llvm-objdump$(LLVM_SUFFIX)
  READELF		= $(LLVM_PREFIX)llvm-readelf$(LLVM_SUFFIX)
  STRIP		= $(LLVM_PREFIX)llvm-strip$(LLVM_SUFFIX)
@@ -204,7 +213,7 @@ index 361a70264..442c111c8 100644
  else
  CC		= $(CROSS_COMPILE)gcc
  LD		= $(CROSS_COMPILE)ld
-@@ -501,6 +502,7 @@ OBJCOPY		= $(CROSS_COMPILE)objcopy
+@@ -488,6 +489,7 @@ OBJCOPY		= $(CROSS_COMPILE)objcopy
  OBJDUMP		= $(CROSS_COMPILE)objdump
  READELF		= $(CROSS_COMPILE)readelf
  STRIP		= $(CROSS_COMPILE)strip
@@ -212,7 +221,7 @@ index 361a70264..442c111c8 100644
  endif
  RUSTC		= rustc
  RUSTDOC		= rustdoc
-@@ -603,7 +605,7 @@ export RUSTC_BOOTSTRAP := 1
+@@ -591,7 +593,7 @@ export RUSTC_BOOTSTRAP := 1
  export ARCH SRCARCH CONFIG_SHELL BASH HOSTCC KBUILD_HOSTCFLAGS CROSS_COMPILE LD CC HOSTPKG_CONFIG
  export RUSTC RUSTDOC RUSTFMT RUSTC_OR_CLIPPY_QUIET RUSTC_OR_CLIPPY BINDGEN CARGO
  export HOSTRUSTC KBUILD_HOSTRUSTFLAGS
@@ -221,7 +230,7 @@ index 361a70264..442c111c8 100644
  export PERL PYTHON3 CHECK CHECKFLAGS MAKE UTS_MACHINE HOSTCXX
  export KGZIP KBZIP2 KLZOP LZMA LZ4 XZ ZSTD
  export KBUILD_HOSTCXXFLAGS KBUILD_HOSTLDFLAGS KBUILD_HOSTLDLIBS LDFLAGS_MODULE
-@@ -1473,6 +1475,16 @@ KBUILD_BUILTIN := 1
+@@ -1453,6 +1455,16 @@ KBUILD_BUILTIN := 1
  modules: vmlinux
  endif
  
@@ -238,28 +247,11 @@ index 361a70264..442c111c8 100644
  modules: modules_prepare
  
  # Target to prepare building external modules
-@@ -1491,6 +1503,7 @@ endif # CONFIG_MODULES
- # Directories & files removed with 'make clean'
- CLEAN_FILES += vmlinux.symvers modules-only.symvers \
- 	       modules.builtin modules.builtin.modinfo modules.nsdeps \
-+	       modules.symbfreq \
- 	       compile_commands.json rust/test \
- 	       rust-project.json .vmlinux.objs .vmlinux.export.c
- 
-@@ -1942,7 +1955,7 @@ clean: $(clean-dirs)
- 	$(call cmd,rmfiles)
- 	@find $(or $(KBUILD_EXTMOD), .) $(RCS_FIND_IGNORE) \
- 		\( -name '*.[aios]' -o -name '*.rsi' -o -name '*.ko' -o -name '.*.cmd' \
--		-o -name '*.ko.*' \
-+		-o -name '*.ko.*' -o -name '*.o.kas' \
- 		-o -name '*.dtb' -o -name '*.dtbo' \
- 		-o -name '*.dtb.S' -o -name '*.dtbo.S' \
- 		-o -name '*.dt.yaml' -o -name 'dtbs-list' \
 diff --git a/init/Kconfig b/init/Kconfig
-index d8a971b80..af44a0b0b 100644
+index 9ffb103fc927..f68341b29576 100644
 --- a/init/Kconfig
 +++ b/init/Kconfig
-@@ -1807,6 +1807,28 @@ config KALLSYMS_BASE_RELATIVE
+@@ -1738,6 +1738,28 @@ config KALLSYMS_BASE_RELATIVE
  	  time constants, and no relocation pass is required at runtime to fix
  	  up the entries based on the runtime load address of the kernel.
  
@@ -287,12 +279,12 @@ index d8a971b80..af44a0b0b 100644
 +
  # end of the "standard kernel features (expert users)" menu
  
- config ARCH_HAS_MEMBARRIER_CALLBACKS
+ # syscall, maps, verifier
 diff --git a/scripts/Makefile.modfinal b/scripts/Makefile.modfinal
-index 3bec9043e..562ebf74b 100644
+index 8568d256d6fb..acde29a46c6b 100644
 --- a/scripts/Makefile.modfinal
 +++ b/scripts/Makefile.modfinal
-@@ -15,6 +15,37 @@ include $(srctree)/scripts/Makefile.lib
+@@ -15,6 +15,32 @@ include $(srctree)/scripts/Makefile.lib
  # find all modules listed in modules.order
  modules := $(call read-file, $(MODORDER))
  
@@ -303,8 +295,6 @@ index 3bec9043e..562ebf74b 100644
 +endif
 +
 +VMLINUX_DEP ?=
-+
-+OBJ_FILE_FILTER = %.o
 +
 +ifeq ($(CONFIG_KALLSYMS_ALIAS_SRCLINE),y)
 +  ifeq ($(CONFIG_KALLSYMS_ALIAS_SRCLINE_DATA),y)
@@ -322,54 +312,42 @@ index 3bec9043e..562ebf74b 100644
 +  --addr2line $(ADDR2LINE) --basedir $(srctree) --separator @ \
 +  single_module \
 +  --objcopy $(OBJCOPY) --objdump $(OBJDUMP) --target-module
-+
-+  KAS_DEP := %.o.kas
-+  OBJ_FILE_FILTER = %.mod.o %.o.kas
 +endif
 +
  __modfinal: $(modules:%.o=%.ko)
  	@:
  
-@@ -34,7 +65,7 @@ quiet_cmd_ld_ko_o = LD [M]  $@
+@@ -30,6 +56,7 @@ quiet_cmd_cc_o_c = CC [M]  $@
+ 
+ quiet_cmd_ld_ko_o = LD [M]  $@
        cmd_ld_ko_o +=							\
++	[ "$(KAS_ALIAS_MODULE_CMD)" != "" ] && $(KAS_ALIAS_MODULE_CMD) $<;	\
  	$(LD) -r $(KBUILD_LDFLAGS)					\
  		$(KBUILD_LDFLAGS_MODULE) $(LDFLAGS_MODULE)		\
--		-T scripts/module.lds -o $@ $(filter %.o, $^)
-+		-T scripts/module.lds -o $@ $(filter $(OBJ_FILE_FILTER), $^)
- 
- quiet_cmd_btf_ko = BTF [M] $@
-       cmd_btf_ko = 							\
-@@ -45,6 +76,10 @@ quiet_cmd_btf_ko = BTF [M] $@
- 		$(RESOLVE_BTFIDS) -b vmlinux $@; 			\
- 	fi;
- 
-+quiet_cmd_produce_kas = KAS [M] $@
-+      cmd_produce_kas = 						\
-+		$(KAS_ALIAS_MODULE_CMD) $<
-+
- # Same as newer-prereqs, but allows to exclude specified extra dependencies
- newer_prereqs_except = $(filter-out $(PHONY) $(1),$?)
- 
-@@ -53,8 +88,12 @@ if_changed_except = $(if $(call newer_prereqs_except,$(2))$(cmd-check),      \
- 	$(cmd);                                                              \
+ 		-T scripts/module.lds -o $@ $(filter %.o, $^)
+@@ -52,7 +79,7 @@ if_changed_except = $(if $(call newer_prereqs_except,$(2))$(cmd-check),      \
  	printf '%s\n' 'savedcmd_$@ := $(make-cmd)' > $(dot-target).cmd, @:)
  
-+# if KALLSYMS_ALIAS produces objects having aliases
-+%.o.kas: %.o
-+	+$(call cmd,produce_kas)
-+
  # Re-generate module BTFs if either module's .ko or vmlinux changed
 -%.ko: %.o %.mod.o scripts/module.lds $(and $(CONFIG_DEBUG_INFO_BTF_MODULES),$(KBUILD_BUILTIN),vmlinux) FORCE
-+%.ko: %.o %.mod.o scripts/module.lds $(VMLINUX_DEP) $(KAS_DEP) FORCE
++%.ko: %.o %.mod.o scripts/module.lds $(VMLINUX_DEP) FORCE
  	+$(call if_changed_except,ld_ko_o,vmlinux)
  ifdef CONFIG_DEBUG_INFO_BTF_MODULES
  	+$(if $(newer-prereqs),$(call cmd,btf_ko))
+@@ -65,7 +92,6 @@ targets += $(modules:%.o=%.ko) $(modules:%.o=%.mod.o)
+ 
+ PHONY += FORCE
+ FORCE:
+-
+ # Read all saved command lines and dependencies for the $(targets) we
+ # may be building above, using $(if_changed{,_dep}). As an
+ # optimization, we don't need to read them if the target does not
 diff --git a/scripts/kas_alias.py b/scripts/kas_alias.py
 new file mode 100755
-index 000000000..f87db4ae3
+index 000000000000..4abf66b8257e
 --- /dev/null
 +++ b/scripts/kas_alias.py
-@@ -0,0 +1,596 @@
+@@ -0,0 +1,601 @@
 +#!/usr/bin/env python3
 +# SPDX-License-Identifier: GPL-2.0-only
 +#
@@ -426,13 +404,11 @@ index 000000000..f87db4ae3
 +Line = namedtuple('Line', ['address', 'type', 'name', 'addr_int'])
 +
 +def get_caller():
-+    """
-+    Used only to produce debug messages:
-+    Gets the caller's caller name if any, "kas_alias" otherwise
-+    Args:
-+      None
-+    Returns:
-+      A string representing a name of a function.
++    """Used only to produce debug messages: returns the caller's caller name if any,
++    "kas_alias" otherwise
++
++    :return: A string representing a name of a function.
++    :rtype: str
 +    """
 +    stack = inspect.stack()
 +    if len(stack) > 2:
@@ -443,29 +419,32 @@ index 000000000..f87db4ae3
 +        return "kas_alias"
 +
 +def debug_print(config, print_debug_level, text):
-+    """
-+    Prints text if current debug level is greater or equal to print_debug_level.
-+    Args:
-+      current_debug_level: Application debug level specified by command line.
-+      print_debug_level: Minimum debug level message should be printed.
-+      text: string representing the message.
-+    Returns:
-+      Nothing.
++    """Prints text if current debug level is greater or equal to print_debug_level.
++
++    :param config: object containing the current config parsed from command line
++    :type config: object
++    :param print_debug_level: Minimum debug level message should be printed.
++    :type print_debug_level: int
++    :param text: string representing the message.
++    :type text: str
 +    """
 +    if int(config.debug) >= print_debug_level:
 +        print(f"{get_caller()}: " + text)
 +
 +def parse_nm_lines(config, lines, name_occurrences=None):
-+    """
-+    Parses a given nm output and returns the symbol list along with a hash of
++    """Parses a given nm output and returns the symbol list along with a hash of
 +    symbol occurrences.
-+    Args:
-+      lines: List of tuples representing one nm line.
-+      name_occurrences: Hash having the name as key, used to count names'
-+                        occurrences.
-+    Returns:
-+      Creates a new line list proper for the nm output it parsed and, updates
-+      the occurrences hash.
++
++    :param config: object containing the current config parsed from command line
++    :type config: object
++    :param lines: List of tuples representing one nm line.
++    :type lines: List of Line
++    :param name_occurrences: Hash having the name as key, used to count names' occurrences.
++    :type name_occurrences: map[string]=int
++
++    :return: two elements tuple containing: a new line list proper for the nm output it parsed
++       and, updates the occurrences hash.
++    :rtype: tuple
 +    """
 +    debug_print(config, DebugLevel.DEBUG_BASIC.value, "parse_nm_lines: parse start")
 +
@@ -485,14 +464,14 @@ index 000000000..f87db4ae3
 +    return symbol_list, name_occurrences
 +
 +def start_addr2line_process(binary_file, config):
-+    """
-+    Initializes an addr2line server process operating on the given ELF object.
-+    Args:
-+      binary_file: String representing the binary file name object of addr2line
-+                   queries.
-+      addr2line_file: String representing the addr2line executable name.
-+    Returns:
-+      Returns addr2line process descriptor.
++    """Initializes an addr2line server process operating on the given ELF object.
++
++    :param binary_file: String representing the binary file name object of addr2line queries.
++    :type binary_file: str
++    :param config: object containing the current config parsed from command line
++    :type config: object
++    :return: addr2line process descriptor.
++    :rtype: process descriptor
 +    """
 +    debug_print(config, DebugLevel.DEBUG_BASIC.value, f"Starting addr2line process on {binary_file}")
 +
@@ -509,16 +488,17 @@ index 000000000..f87db4ae3
 +        sys.exit(-2)
 +
 +def addr2line_fetch_address(config, addr2line_process, address):
-+    """
-+    Queries a specific address using the active addr2line process.
-+    Args:
-+      addr2line_process: Descriptor of the addr2line process that is wanted to
-+                         handle the query.
-+      address: The address of the symbol that needs to be resolved.
-+    Returns:
-+      Returns a string representing the file and line number where the symbol
-+      at the specified address has been defined. The address is normalized
-+      before being returned.
++    """Queries a specific address using the active addr2line process.
++
++    :param config: object containing the current config parsed from command line
++    :type config: object
++    :param addr2line_process: Descriptor of the addr2line process that is wanted to handle the query.
++    :type addr2line_process: process descriptor
++    :param address: The address of the symbol that needs to be resolved.
++    :type address: str
++    :return: a string representing the file and line number where the symbol at the specified address
++         has been defined. The address is normalized before being returned.
++    :rtype: str
 +  """
 +    debug_print(config, DebugLevel.DEBUG_ALL.value, f"Resolving {address}")
 +
@@ -534,13 +514,16 @@ index 000000000..f87db4ae3
 +        sys.exit(-2)
 +
 +def process_line(line, config, section_map):
-+    """
-+    Determines whether a duplicate item requires an alias or not.
-+    Args:
-+      line: nm line object that needs to be checked.
-+      section_map: map correlating symbols and the ELF section they are from
-+    Returns:
-+      Returns true if the line needs to be processed, false otherwise.
++    """Determines whether a duplicate item requires an alias or not.
++
++    :param line: nm line object that needs to be checked.
++    :type line: list of Line
++    :param section_map: map correlating symbols and the ELF section they are from
++    :type section_map: map[str]=str
++    :param config: object containing the current config parsed from command line
++    :type config: object
++    :return: true if the line needs to be processed, false otherwise.
++    :rtype: bool
 +    """
 +    debug_print(config, DebugLevel.DEBUG_ALL.value, f"Processing {line.address} {line.type} {line.name}")
 +
@@ -562,12 +545,14 @@ index 000000000..f87db4ae3
 +                not (any(re.match(regex, line.name) for regex in regex_filter)))
 +
 +def fetch_file_lines(config, filename):
-+    """
-+    Reads a text file and retrieves its content.
-+    Args:
-+      filename: String representing the name of the file that needs to be read.
-+    Returns:
-+      Returns a string list representing the lines read in the file.
++    """Reads a text file and retrieves its content.
++
++    :param filename: String representing the name of the file that needs to be read.
++    :type filename: str
++    :param config: object containing the current config parsed from command line
++    :type config: object
++    :return: a string list representing the lines read in the file.
++    :rtype: list of str
 +    """
 +    debug_print(config, DebugLevel.DEBUG_BASIC.value, f"Fetch {filename}")
 +
@@ -580,14 +565,14 @@ index 000000000..f87db4ae3
 +        sys.exit(-2)
 +
 +def do_nm(filename, config):
-+    """
-+    Runs the nm command on a specified file.
-+    Args:
-+      filename: String representing the name of the file on which nm should
-+      run against.
-+      nm_executable: String representing the nm executable filename.
-+    Returns:
-+      Returns a strings list representing the nm output.
++    """Runs the nm command on a specified file.
++
++    :param filename: String representing the name of the file on which nm should run against.
++    :type filename: str
++    :param config: object containing the current config parsed from command line
++    :type config: object
++    :return: a strings list representing the nm output.
++    :rtype: list of str
 +    """
 +    debug_print(config, DebugLevel.DEBUG_BASIC.value, f"executing {config.nm_file} -n {filename}")
 +
@@ -600,17 +585,18 @@ index 000000000..f87db4ae3
 +        sys.exit(-2)
 +
 +def make_objcpy_arg(config, line, decoration, section_map):
-+    """
-+    Produces an objcopy argument statement for a single alias to be added in a
-+    module.
-+    Args:
-+      line: nm line object target for this iteration.
-+      decoration: String representing the decoration (normalized addr2line
-+                  output) to be added at the symbol name to have the alias.
-+      section_map: map correlating symbols and the ELF section they are from
-+    Returns:
-+      Returns a string that directly maps the argument string objcopy should
-+      use to add the alias.
++    """Produces an objcopy argument statement for a single alias to be added in a module.
++
++    :param line: nm line object target for this iteration.
++    :type line: list of Line
++    :param decoration: String representing the decoration (normalized addr2line output) to be added at the symbol name to have the alias.
++    :type decoration: str
++    :param section_map: map correlating symbols and the ELF section they are from
++    :type section_map: map[str]=str
++    :param config: object containing the current config parsed from command line
++    :type config: object
++    :return: a string that directly maps the argument string objcopy should use to add the alias.
++    :rtype: str
 +    """
 +    try:
 +        flag = "global" if line.type.isupper() else "local"
@@ -627,24 +613,28 @@ index 000000000..f87db4ae3
 +        return ""
 +
 +def execute_objcopy(config, objcopy_args, object_file):
++    """Uses objcopy to add aliases to a given module object file. Since objcopy can't operate in place,
++    the original object file is renamed before operating on it. At function end, a new object file
++    having the old object's name is carrying the aliases for the duplicate symbols.
++
++    :param config: object containing the current config parsed from command line
++    :type config: object
++    :param objcopy_args: Arguments (aliases to add to the object file) to be used in the objcopy execution command line.
++    :type objcopy_args: str
++    :param object_file: Target object file (module object file) against which objcopy is executed.
++    :type object_file: str
++    :return: Nothing is returned, but as a side effect of this function execution, the module's object file contains
++       the aliases for duplicated symbols.
++    :rtype: None
 +    """
-+    Uses objcopy to add aliases to a given module object file.
-+    Since objcopy can't operate in place, the original object file is renamed
-+    before operating on it. At function end, a new object file having the old
-+    object's name is carrying the aliases for the duplicate symbols.
-+    Args:
-+      objcopy_executable: String representing the object copy executable file.
-+      objcopy_args: Arguments (aliases to add to the object file) to be used
-+                    in the objcopy execution command line.
-+      object_file: Target object file (module object file) against which objcopy is executed.
-+    Returns:
-+      Nothing is returned, but as a side effect of this function execution,
-+      the module's object file contains the aliases for duplicated symbols.
-+    """
++    # Rename the original object file by adding a suffix
++    backup_file = object_file + '.orig'
++    debug_print(config, DebugLevel.DEBUG_MODULES.value, f"rename {object_file} to {backup_file}")
++    os.rename(object_file, backup_file)
 +
 +    full_command = (
 +                    f"{config.objcopy_file} "
-+                    f"{objcopy_args} {object_file} {object_file}.kas"
++                    f"{objcopy_args} {backup_file} {object_file}"
 +                   )
 +    debug_print(config, DebugLevel.DEBUG_MODULES.value, f"executing {full_command}")
 +
@@ -655,18 +645,17 @@ index 000000000..f87db4ae3
 +        sys.exit(-2)
 +
 +def generate_decoration(line, config, addr2line_process):
-+    """
-+    Generates symbol decoration to be used to make the alias name, by
-+    querying addr2line.
-+    Args:
-+      line: nm line object that needs an alias.
-+      config: Object containing command line configuration.
-+      addr2line_process: Descriptor of the addr2line process that serves
-+                         the binary object where the symbol belongs.
-+    Returns:
-+      Returns a string representing the decoration for the given symbol,
-+      or empty string if this can not be done. E.g., addr2line can't find
-+      the point where the symbol is defined.
++    """Generates symbol decoration to be used to make the alias name, by querying addr2line.
++
++    :param line: nm line object that needs an alias.
++    :type line: lis of Line
++    :param config: object containing the current config parsed from command line
++    :type config: object
++    :param addr2line_process: Descriptor of the addr2line process that serves the binary object where the symbol belongs.
++    :type addr2line_process: process descriptor
++    :return: Returns a string representing the decoration for the given symbol, or empty string if this can not be done.
++       E.g., addr2line can't find the point where the symbol is defined.
++    :rtype: str
 +    """
 +    output = addr2line_fetch_address(config, addr2line_process, line.address)
 +    base_dir = config.linux_base_dir + "/"
@@ -693,12 +682,12 @@ index 000000000..f87db4ae3
 +    return ""
 +
 +def section_interesting(section):
-+    """
-+    checks if a section is of interest.
-+    Args:
-+      section: string representing the section needed to be tested.
-+    Returns:
-+      True if it is, False otherwise.
++    """Checks if a section is of interest.
++
++    :param section: string representing the section needed to be tested.
++    :type section: str
++    :return: True if it is, False otherwise.
++    :rtype: bool
 +    """
 +    sections_regex = [r".text", r".data", r".bss", r".rodata"]
 +
@@ -708,15 +697,14 @@ index 000000000..f87db4ae3
 +    return False
 +
 +def get_symbol2section(config, file_to_operate):
-+    """
-+    This function aims to produce a map{symbol_name]=section_name for
-+    any given object file.
-+    Args:
-+      objdump_executable: String representing the objdump executable.
-+      file_to_operate: file whose section names are wanted.
-+    Returns:
-+      Returns a map, where the key is the symbol name and the value is
-+      a section name.
++    """This function aims to produce a map[symbol_name]=section_name for any given object file.
++
++    :param config: object containing the current config parsed from command line
++    :type config: object
++    :param file_to_operate: file whose section names are wanted.
++    :type file_to_operate: str
++    :return: Returns a map, where the key is the symbol name and the value is a section name.
++    :rtype: map[str]=str
 +    """
 +    try:
 +        output = subprocess.check_output(
@@ -725,8 +713,8 @@ index 000000000..f87db4ae3
 +        section_pattern = re.compile(r'^ *[0-9]+ ([.a-z_]+) +([0-9a-f]+).*$', re.MULTILINE)
 +        section_names = section_pattern.findall(output)
 +        result = {}
-+        for section, section_siza in section_names:
-+            if int(section_siza, 16) != 0 and section_interesting(section):
++        for section, section_size in section_names:
++            if int(section_size, 16) != 0 and section_interesting(section):
 +                debug_print(config, DebugLevel.DEBUG_ALL.value, f"CMD => {config.objdump_file} -tj {section} {file_to_operate}")
 +                try:
 +                    output = subprocess.check_output(
@@ -745,21 +733,22 @@ index 000000000..f87db4ae3
 +        sys.exit(-2)
 +    return result
 +
-+def produce_output_modules(config, symbol_list, name_occurrences,
-+                           module_file_name, addr2line_process):
-+    """
-+    Computes the alias addition on a given module object file.
-+    Args:
-+      config: Object containing command line configuration.
-+      symbol_list: List of tuples representing nm lines for the given object
-+                   file.
-+      name_occurrences: Hash that stores symbol occurrences for the build.
-+      module_file_name: String representing the target moule object file.
-+      addr2line_process: Descriptor of the addr2line process that is wanted to
-+                         handle the query.
-+    Returns:
-+      Nothing is returned, but as a side effect of this function execution,
-+      the module's object file contains the aliases for duplicated symbols.
++def produce_output_modules(config, symbol_list, name_occurrences, module_file_name, addr2line_process):
++    """Computes the alias addition on a given module object file.
++
++    :param config: object containing the current config parsed from command line.
++    :type config: object
++    :param symbol_list: List of tuples representing nm lines for the given object file.
++    :type symbol_list: list of Line
++    :param name_occurrences: Hash that stores symbol occurrences for the build.
++    :type name_occurrences: map[str]=int
++    :param module_file_name: String representing the target moule object file.
++    :type module_file_name: str
++    :param addr2line_process: Descriptor of the addr2line process that is wanted to handle the query.
++    :type addr2line_process: process descriptor
++    :return: Nothing is returned, but as a side effect of this function execution, the module's object file contains the
++       aliases for duplicated symbols.
++    :rtype: None
 +    """
 +    debug_print(config, DebugLevel.DEBUG_ALL.value, "produce_output_modules computation starts here ")
 +    objcopy_args = "";
@@ -785,18 +774,19 @@ index 000000000..f87db4ae3
 +    execute_objcopy(config, objcopy_args, module_file_name)
 +
 +def produce_output_vmlinux(config, symbol_list, name_occurrences, addr2line_process):
-+    """
-+    Computes the alias addition for the core Linux on image.
-+    Args:
-+      config: Object containing command line configuration.
-+      symbol_list: List of tuples representing nm lines for the given object
-+                   file.
-+      name_occurrences: Hash that stores symbol occurreces for the build.
-+      addr2line_process: Descriptor of the addr2line process that is wanted to
-+                         handle the query.
-+    Returns:
-+      Nothing is returned, but as a side effect of this function execution,
-+      the core kernel image contains the aliases for duplicated symbols.
++    """Computes the alias addition for the core Linux on image.
++
++    :param config: object containing the current config parsed from command line
++    :type config: object
++    :param symbol_list: List of tuples representing nm lines for the given object file.
++    :type symbol_list: list of Line
++    :param name_occurrences: Hash that stores symbol occurreces for the build.
++    :type name_occurrences: map[str]=int
++    :param addr2line_process: Descriptor of the addr2line process that is wanted to handle the query.
++    :type addr2line_process: process descriptor
++    :return: Nothing is returned, but as a side effect of this function execution, the core kernel image
++      contains the aliases for duplicated symbols.
++    :rtype: None
 +    """
 +    with open(config.output_file, 'w') as output_file:
 +       for obj in symbol_list:
@@ -809,17 +799,13 @@ index 000000000..f87db4ae3
 +                    output_file.write(f"{obj.address} {obj.type} {obj.name + decoration}\n")
 +
 +def read_name_occurrences(config):
-+    """
-+    Reads symbol frequencies from the file specified in the 'config' argument.
-+
++    """Reads symbol frequencies from the file specified in the 'config' argument.
 +    If the file is not found, it gracefully returns an empty map.
 +
-+    Args:
-+      config: A configuration object or dictionary containing necessary information
-+              to locate the file.
-+
-+    Returns:
-+      A map where keys represent symbol names and values represent their frequencies.
++    :param config: object containing the current config parsed from command line
++    :type config: object
++    :return: A map where keys represent symbol names and values represent their frequencies.
++    :rtype: map[str]=int
 +    """
 +    name_occurrences = {}
 +    # This code reads occurrences of symbol names from a file containing both the core image
@@ -845,28 +831,25 @@ index 000000000..f87db4ae3
 +    return name_occurrences
 +
 +def check_aliases(config, module_nm_lines):
-+   """
-+   Flags modules that already have aliases based on the given 'module_nm_lines'.
-+
++   """Flags modules that already have aliases based on the given 'module_nm_lines'.
 +   This function takes in configuration details and a list of strings representing
 +   the 'nm' command output for a specific module. It detects instances where a module
 +   already possesses an alias, which might occur after a build interruption and restart.
-+
 +   The detection logic is straightforward: it examines if the separator character is
 +   present in the symbol name. If found, it uses this separator to check if the
 +   previous symbol shares the same name. This detection assumes 'nm' is invoked with
 +   the '-n' flag, ensuring symbol sorting.
 +
-+   Args:
-+     config: A configuration object or dictionary containing necessary information.
-+     module_nm_lines: A list of strings representing the 'nm' command output for a module.
-+
-+   Returns:
-+     True if the module_nm_lines contains aliases, False otherwise.
++   :param config: object containing the current config parsed from command line
++   :type config: object
++   :param module_nm_lines: A list of strings representing the 'nm' command output for a module.
++   :type module_nm_lines: list of Line
++   :return: True if the module_nm_lines contains aliases, False otherwise.
++   :rtype: bool
 +   """
 +   prev = None
 +   for line in module_nm_lines:
-+       if ('@' in line.name and line.name.split(config.separator)[0] == prev):
++       if (config.separator in line.name and line.name.split(config.separator)[0] == prev):
 +           return False
 +       prev = line.name
 +   return True
@@ -940,7 +923,7 @@ index 000000000..f87db4ae3
 +        # Expects to be called from scripts/Makefile.modfinal
 +        elif config.action == 'single_module':
 +             debug_print(config, DebugLevel.INFO.value,"Start single_module processing")
-+             # read simbol name frequency file
++             # read symbol name frequency file
 +             name_occurrences = read_name_occurrences(config)
 +             # scan current module
 +             module_nm_lines = do_nm(config.target_module, config)
@@ -967,24 +950,23 @@ index 000000000..f87db4ae3
 +if __name__ == "__main__":
 +    main()
 diff --git a/scripts/link-vmlinux.sh b/scripts/link-vmlinux.sh
-index 518c70b8d..2d2d1c56b 100755
+index a432b171be82..9fbcade9fdea 100755
 --- a/scripts/link-vmlinux.sh
 +++ b/scripts/link-vmlinux.sh
-@@ -91,7 +91,12 @@ vmlinux_link()
+@@ -89,8 +89,10 @@ vmlinux_link()
  
- 	# The kallsyms linking does not need debug symbols included.
- 	if [ "$output" != "${output#.tmp_vmlinux.kallsyms}" ] ; then
--		ldflags="${ldflags} ${wl}--strip-debug"
-+		# The kallsyms linking does not need debug symbols included,
-+		# unless the KALLSYMS_ALIAS_SRCLINE.
-+		if ! is_enabled CONFIG_KALLSYMS_ALIAS_SRCLINE && \
-+		   [ "$output" != "${output#.tmp_vmlinux.kallsyms}" ] ; then
-+			ldflags="${ldflags} ${wl}--strip-debug"
-+		fi
+ 	ldflags="${ldflags} ${wl}--script=${objtree}/${KBUILD_LDS}"
+ 
+-	# The kallsyms linking does not need debug symbols included.
+-	if [ "$output" != "${output#.tmp_vmlinux.kallsyms}" ] ; then
++	# The kallsyms linking does not need debug symbols included,
++	# unless the KALLSYMS_ALIAS_SRCLINE.
++	if ! is_enabled CONFIG_KALLSYMS_ALIAS_SRCLINE && \
++	   [ "$output" != "${output#.tmp_vmlinux.kallsyms}" ] ; then
+ 		ldflags="${ldflags} ${wl}--strip-debug"
  	fi
  
- 	if is_enabled CONFIG_VMLINUX_MAP; then
-@@ -166,7 +171,24 @@ kallsyms()
+@@ -161,7 +163,24 @@ kallsyms()
  	fi
  
  	info KSYMS ${2}
@@ -1010,3 +992,14 @@ index 518c70b8d..2d2d1c56b 100755
  }
  
  # Perform one step in kallsyms generation, including temporary linking of
+@@ -203,6 +222,7 @@ cleanup()
+ 	rm -f System.map
+ 	rm -f vmlinux
+ 	rm -f vmlinux.map
++	find . -type f -name "*.orig" -exec rm {} \;
+ }
+ 
+ # Use "make V=1" to debug this script
+-- 
+2.34.1
+
